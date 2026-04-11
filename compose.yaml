@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:17
+    container_name: lumiere-postgres
+    environment:
+      POSTGRES_DB: lumiere
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: root
+    ports:
+      - "5432:5432"
+    volumes:
+      - lumiere-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d lumiere"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  lumiere-postgres-data:
