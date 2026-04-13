@@ -35,6 +35,18 @@ public class JwtService {
         return extractClaim(token, claims -> claims.get("role", String.class));
     }
 
+    public Long extractStaffId(String token) {
+        return extractClaim(token, claims -> claims.get("staffId", Long.class));
+    }
+
+    public String extractTableCode(String token) {
+        return extractClaim(token, claims -> claims.get("tableCode", String.class));
+    }
+
+    public String extractSessionId(String token) {
+        return extractClaim(token, claims -> claims.get("sessionId", String.class));
+    }
+
     public boolean isTokenValid(String token) {
         try {
             return !isTokenExpired(token);
@@ -51,12 +63,17 @@ public class JwtService {
     public String generateToken(StaffUserDetails userDetails) {
         Map<String, Object> claims = new HashMap<>();
         claims.put("role", userDetails.getRole());
+        claims.put("staffId", userDetails.getId());
         return generateToken(claims, userDetails.getUsername());
     }
 
     public String generateToken(Map<String, Object> extraClaims, String subject) {
+        return generateToken(extraClaims, subject, jwtExpirationMs);
+    }
+
+    public String generateToken(Map<String, Object> extraClaims, String subject, long expirationMs) {
         Instant now = Instant.now();
-        Instant expiration = now.plusMillis(jwtExpirationMs);
+        Instant expiration = now.plusMillis(expirationMs);
 
         return Jwts.builder()
             .claims(extraClaims)

@@ -42,14 +42,19 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         }
 
         String username = jwtService.extractUsername(token);
+        Long staffId = jwtService.extractStaffId(token);
         String role = jwtService.extractRole(token);
+        String tableCode = jwtService.extractTableCode(token);
+        String sessionId = jwtService.extractSessionId(token);
+
+        JwtPrincipal principal = new JwtPrincipal(username, staffId, role, tableCode, sessionId);
 
         UsernamePasswordAuthenticationToken authenticationToken;
         if (role == null || role.isBlank()) {
-            authenticationToken = new UsernamePasswordAuthenticationToken(username, null, List.of());
+            authenticationToken = new UsernamePasswordAuthenticationToken(principal, null, List.of());
         } else {
             authenticationToken = new UsernamePasswordAuthenticationToken(
-                    username,
+                    principal,
                     null,
                     List.of(new SimpleGrantedAuthority("ROLE_" + role))
             );

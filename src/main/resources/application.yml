@@ -33,6 +33,11 @@ logging:
   level:
     iuh.fit.se: DEBUG
 
+app:
+  qr:
+    base-url: ${QR_BASE_URL:http://localhost:8080/menu/tables/qr}
+    session-expiration: ${QR_SESSION_EXPIRATION:1800000}
+
 springdoc:
   swagger-ui:
     path: /swagger-ui.html

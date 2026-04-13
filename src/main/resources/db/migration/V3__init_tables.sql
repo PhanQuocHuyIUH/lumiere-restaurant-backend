@@ -42,28 +42,62 @@ CREATE INDEX idx_menu_items_available ON menu.menu_items(is_available) WHERE del
 
 CREATE TABLE table_mgmt.tables (
     id            BIGINT            GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    table_number  INT               NOT NULL UNIQUE CHECK (table_number > 0),
+    floor         INT               NOT NULL CHECK (floor > 0),
+    table_no      INT               NOT NULL CHECK (table_no > 0),
+    table_code    VARCHAR(16)       GENERATED ALWAYS AS (floor::text || '-' || LPAD(table_no::text, 3, '0')) STORED,
     capacity      INT               NOT NULL DEFAULT 4 CHECK (capacity > 0),
     status        table_status_enum NOT NULL DEFAULT 'AVAILABLE',
-    floor         INT               DEFAULT 1,
-    zone          VARCHAR(50),
     created_at    TIMESTAMPTZ       NOT NULL DEFAULT NOW(),
     updated_at    TIMESTAMPTZ,
-    deleted_at    TIMESTAMPTZ
+    deleted_at    TIMESTAMPTZ,
+    CONSTRAINT uq_tables_floor_table_no UNIQUE (floor, table_no),
+    CONSTRAINT uq_tables_table_code UNIQUE (table_code)
 );
 CREATE INDEX idx_tables_status ON table_mgmt.tables(status) WHERE deleted_at IS NULL;
+CREATE INDEX idx_tables_code   ON table_mgmt.tables(table_code) WHERE deleted_at IS NULL;
+
+CREATE TABLE table_mgmt.table_qr_codes (
+    id                     BIGINT              GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    table_id               BIGINT              NOT NULL UNIQUE REFERENCES table_mgmt.tables(id) ON DELETE CASCADE,
+    qr_key                 VARCHAR(120)        NOT NULL UNIQUE,
+    status                 qr_code_status_enum NOT NULL DEFAULT 'ACTIVE',
+    rotate_after           TIMESTAMPTZ,
+    last_issued_session_at TIMESTAMPTZ,
+    created_at             TIMESTAMPTZ         NOT NULL DEFAULT NOW(),
+    updated_at             TIMESTAMPTZ,
+    disabled_at            TIMESTAMPTZ
+);
+CREATE INDEX idx_table_qr_codes_status       ON table_mgmt.table_qr_codes(status);
+CREATE INDEX idx_table_qr_codes_rotate_after ON table_mgmt.table_qr_codes(rotate_after) WHERE rotate_after IS NOT NULL;
+
+CREATE TABLE table_mgmt.qr_sessions (
+    id             BIGINT                 GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    session_id     VARCHAR(64)            NOT NULL UNIQUE,
+    qr_code_id     BIGINT                 NOT NULL REFERENCES table_mgmt.table_qr_codes(id) ON DELETE CASCADE,
+    table_id       BIGINT                 NOT NULL REFERENCES table_mgmt.tables(id) ON DELETE CASCADE,
+    issued_to      VARCHAR(120),
+    status         qr_session_status_enum NOT NULL DEFAULT 'ACTIVE',
+    issued_at      TIMESTAMPTZ            NOT NULL DEFAULT NOW(),
+    expires_at     TIMESTAMPTZ            NOT NULL,
+    revoked_at     TIMESTAMPTZ,
+    last_access_at TIMESTAMPTZ,
+    CONSTRAINT ck_qr_session_expiry CHECK (expires_at > issued_at)
+);
+CREATE INDEX idx_qr_sessions_table_status ON table_mgmt.qr_sessions(table_id, status);
+CREATE INDEX idx_qr_sessions_expires_at   ON table_mgmt.qr_sessions(expires_at);
 
 CREATE TABLE ordering.idempotency_keys (
     id              BIGINT        GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    idem_key        VARCHAR(200)  NOT NULL UNIQUE,
+    idem_key        VARCHAR(200)  NOT NULL,
     module          VARCHAR(50)   NOT NULL,
     operation       VARCHAR(100)  NOT NULL,
     response_status INT,
     response_body   JSONB,
     expires_at      TIMESTAMPTZ   NOT NULL DEFAULT (NOW() + INTERVAL '24 hours'),
-    created_at      TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+    created_at      TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_idempotency_scope UNIQUE (module, operation, idem_key)
 );
-CREATE INDEX idx_idem_key     ON ordering.idempotency_keys(idem_key);
+CREATE INDEX idx_idem_scope   ON ordering.idempotency_keys(module, operation, idem_key);
 CREATE INDEX idx_idem_expires ON ordering.idempotency_keys(expires_at);
 
 CREATE TABLE ordering.orders (
@@ -85,13 +119,23 @@ CREATE TABLE ordering.orders (
 CREATE INDEX idx_orders_table_status ON ordering.orders(table_id, status);
 CREATE INDEX idx_orders_created_at   ON ordering.orders(created_at DESC);
 CREATE INDEX idx_orders_active       ON ordering.orders(table_id, created_at DESC) WHERE status NOT IN ('PAID', 'CANCELLED');
+CREATE UNIQUE INDEX uq_orders_single_active_per_table
+    ON ordering.orders(table_id)
+    WHERE status IN ('CREATED', 'CONFIRMED', 'PREPARING', 'READY', 'SERVED');
 
 CREATE TABLE ordering.order_revisions (
-    id              BIGINT      GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    order_id        BIGINT      NOT NULL REFERENCES ordering.orders(id) ON DELETE CASCADE,
-    revision_number INT         NOT NULL CHECK (revision_number > 0),
-    created_by      BIGINT      REFERENCES identity.staff(id) ON DELETE SET NULL,
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    id               BIGINT               GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    order_id         BIGINT               NOT NULL REFERENCES ordering.orders(id) ON DELETE CASCADE,
+    revision_number  INT                  NOT NULL CHECK (revision_number > 0),
+    revision_source  revision_source_enum NOT NULL,
+    created_by_staff BIGINT               REFERENCES identity.staff(id) ON DELETE SET NULL,
+    qr_session_id    VARCHAR(64)          REFERENCES table_mgmt.qr_sessions(session_id) ON DELETE SET NULL,
+    created_at       TIMESTAMPTZ          NOT NULL DEFAULT NOW(),
+    CONSTRAINT ck_order_revision_source CHECK (
+        (revision_source = 'CUSTOMER_QR' AND qr_session_id IS NOT NULL)
+        OR
+        (revision_source = 'STAFF' AND created_by_staff IS NOT NULL)
+    ),
     CONSTRAINT uq_order_revision UNIQUE (order_id, revision_number)
 );
 
@@ -103,12 +147,12 @@ CREATE TABLE ordering.order_items (
     unit_price          NUMERIC(12,2)          NOT NULL CHECK (unit_price >= 0),
     subtotal            NUMERIC(12,2)          GENERATED ALWAYS AS (quantity * unit_price) STORED,
     note                TEXT,
-    cooking_preference  VARCHAR(100),
     status              order_item_status_enum NOT NULL DEFAULT 'PENDING',
     created_at          TIMESTAMPTZ            NOT NULL DEFAULT NOW()
 );
 CREATE INDEX idx_order_items_revision  ON ordering.order_items(revision_id);
 CREATE INDEX idx_order_items_menu_item ON ordering.order_items(menu_item_id);
+
 
 CREATE TABLE kitchen.kitchen_tasks (
     id              BIGINT                   GENERATED ALWAYS AS IDENTITY PRIMARY KEY,

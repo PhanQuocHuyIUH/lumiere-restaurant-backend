@@ -16,6 +16,8 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.JdbcType;
+import org.hibernate.dialect.PostgreSQLEnumJdbcType;
 
 @Entity
 @Table(name = "staff", schema = "identity")
@@ -33,6 +35,7 @@ public class Staff {
     private String name;
 
     @Enumerated(EnumType.STRING)
+    @JdbcType(PostgreSQLEnumJdbcType.class)
     @Column(name = "role", columnDefinition = "staff_role_enum", nullable = false)
     private StaffRole role;
 
@@ -43,6 +46,7 @@ public class Staff {
     private String passwordHash;
 
     @Enumerated(EnumType.STRING)
+    @JdbcType(PostgreSQLEnumJdbcType.class)
     @Column(name = "status", columnDefinition = "staff_status_enum", nullable = false)
     private StaffStatus status;
 

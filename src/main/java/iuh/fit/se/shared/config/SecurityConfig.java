@@ -40,7 +40,8 @@ public class SecurityConfig {
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(HttpMethod.POST, "/auth/login").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/menu/tables/*/qr-init").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/menu/tables/qr/*/qr-init").permitAll()
+                        .requestMatchers(HttpMethod.POST, "/orders", "/orders/*/revisions").permitAll()
                         .requestMatchers("/payments/webhooks/**").permitAll()
                         .requestMatchers("/ws/**", "/ws").permitAll()
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()

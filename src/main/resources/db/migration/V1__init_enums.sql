@@ -1,7 +1,10 @@
 CREATE TYPE staff_role_enum AS ENUM ('MANAGER', 'WAITER', 'CASHIER', 'KITCHEN');
 CREATE TYPE staff_status_enum AS ENUM ('ACTIVE', 'INACTIVE');
 CREATE TYPE table_status_enum AS ENUM ('AVAILABLE', 'OCCUPIED', 'RESERVED', 'CLEANING');
+CREATE TYPE qr_code_status_enum AS ENUM ('ACTIVE', 'DISABLED', 'ROTATING');
+CREATE TYPE qr_session_status_enum AS ENUM ('ACTIVE', 'EXPIRED', 'REVOKED');
 CREATE TYPE order_status_enum AS ENUM ('CREATED', 'CONFIRMED', 'PREPARING', 'READY', 'SERVED', 'PAID', 'CANCELLED');
+CREATE TYPE revision_source_enum AS ENUM ('CUSTOMER_QR', 'STAFF');
 CREATE TYPE order_item_status_enum AS ENUM ('PENDING', 'PREPARING', 'DONE', 'SERVED', 'CANCELLED');
 CREATE TYPE kitchen_task_status_enum AS ENUM ('CREATED', 'COOKING', 'DONE', 'CANCELLED');
 CREATE TYPE kitchen_batch_status_enum AS ENUM ('SUGGESTED', 'CONFIRMED', 'IN_PROGRESS', 'DONE');
