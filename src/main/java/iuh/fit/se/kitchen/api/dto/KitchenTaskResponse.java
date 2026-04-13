@@ -8,7 +8,6 @@ public record KitchenTaskResponse(
         Long id,
         Long orderItemId,
         KitchenTaskStatus status,
-        String staffNote,
         Instant startedAt,
         Instant completedAt,
         Integer actualCookSeconds
@@ -19,7 +18,6 @@ public record KitchenTaskResponse(
                 task.getId(),
                 task.getOrderItemId(),
                 task.getStatus(),
-                task.getStaffNote(),
                 task.getStartedAt(),
                 task.getCompletedAt(),
                 task.getActualCookSeconds()

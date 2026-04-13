@@ -12,7 +12,7 @@ public interface KitchenService {
 
     KitchenTaskResponse startTask(Long taskId, String idempotencyKey);
 
-    KitchenTaskResponse completeTask(Long taskId, String idempotencyKey, String staffNote);
+    KitchenTaskResponse completeTask(Long taskId, String idempotencyKey);
 
     List<KitchenBatchResponse> getBatches(KitchenBatchStatus status);
 

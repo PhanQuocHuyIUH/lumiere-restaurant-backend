@@ -48,6 +48,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/menu/**", "/tables/**").hasAnyRole("WAITER", "MANAGER")
                         .requestMatchers(HttpMethod.GET, "/kitchen/**").hasAnyRole("KITCHEN", "WAITER", "MANAGER")
                         .requestMatchers(HttpMethod.PUT, "/kitchen/**").hasAnyRole("KITCHEN", "MANAGER")
+                        .requestMatchers(HttpMethod.PUT, "/orders/*/items/*/serve", "/orders/*/serve-all")
+                        .hasAnyRole("WAITER", "MANAGER")
                         .requestMatchers("/orders/**").hasAnyRole("WAITER", "CASHIER", "MANAGER")
                         .requestMatchers("/payments/**").hasAnyRole("CASHIER", "MANAGER")
                         .requestMatchers("/analytics/**").hasRole("MANAGER")

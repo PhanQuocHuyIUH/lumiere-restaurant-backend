@@ -41,9 +41,6 @@ public class KitchenTask {
     @Builder.Default
     private KitchenTaskStatus status = KitchenTaskStatus.CREATED;
 
-    @Column(name = "staff_note")
-    private String staffNote;
-
     @Column(name = "started_at")
     private Instant startedAt;
 
@@ -84,9 +81,5 @@ public class KitchenTask {
         KitchenTaskStateMachine.validate(this.status, KitchenTaskStatus.CANCELLED);
         this.status = KitchenTaskStatus.CANCELLED;
         this.completedAt = Instant.now();
-    }
-
-    public void updateStaffNote(String staffNote) {
-        this.staffNote = staffNote;
     }
 }

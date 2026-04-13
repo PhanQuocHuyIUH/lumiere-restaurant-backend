@@ -6,14 +6,11 @@ import iuh.fit.se.kitchen.application.KitchenService;
 import iuh.fit.se.kitchen.domain.KitchenBatchStatus;
 import iuh.fit.se.kitchen.domain.KitchenTaskStatus;
 import iuh.fit.se.shared.response.ApiResponse;
-import jakarta.validation.Valid;
-import jakarta.validation.constraints.Size;
 import java.util.List;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PutMapping;
-import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -48,11 +45,9 @@ public class KitchenController {
     @PutMapping("/tasks/{id}/done")
     public ResponseEntity<ApiResponse<KitchenTaskResponse>> completeTask(
             @PathVariable("id") Long taskId,
-            @RequestHeader("X-Idempotency-Key") String idempotencyKey,
-            @Valid @RequestBody(required = false) CompleteTaskRequest request
+            @RequestHeader("X-Idempotency-Key") String idempotencyKey
     ) {
-        String staffNote = request == null ? null : request.staffNote();
-        KitchenTaskResponse response = kitchenService.completeTask(taskId, idempotencyKey, staffNote);
+        KitchenTaskResponse response = kitchenService.completeTask(taskId, idempotencyKey);
         return ResponseEntity.ok(ApiResponse.ok("Kitchen task completed", response));
     }
 
@@ -73,11 +68,5 @@ public class KitchenController {
     public ResponseEntity<ApiResponse<KitchenBatchResponse>> startBatch(@PathVariable("id") Long batchId) {
         KitchenBatchResponse response = kitchenService.startBatch(batchId);
         return ResponseEntity.ok(ApiResponse.ok("Kitchen batch started", response));
-    }
-
-    public record CompleteTaskRequest(
-            @Size(max = 1000, message = "staffNote must be at most 1000 characters")
-            String staffNote
-    ) {
     }
 }

@@ -158,7 +158,6 @@ CREATE TABLE kitchen.kitchen_tasks (
     id              BIGINT                   GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     order_item_id   BIGINT                   NOT NULL UNIQUE REFERENCES ordering.order_items(id) ON DELETE CASCADE,
     status          kitchen_task_status_enum NOT NULL DEFAULT 'CREATED',
-    staff_note      TEXT,
     started_at      TIMESTAMPTZ,
     completed_at    TIMESTAMPTZ,
     actual_cook_seconds INT GENERATED ALWAYS AS (

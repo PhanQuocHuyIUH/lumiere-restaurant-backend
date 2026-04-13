@@ -5,6 +5,7 @@ import iuh.fit.se.ordering.api.dto.CreateOrderRequest;
 import iuh.fit.se.ordering.api.dto.OrderResponse;
 import iuh.fit.se.ordering.domain.OrderStatus;
 import java.util.List;
+import java.util.Optional;
 
 public interface OrderingService {
 
@@ -23,4 +24,10 @@ public interface OrderingService {
     Long markOrderItemPreparing(Long orderItemId);
 
     Long markOrderItemDone(Long orderItemId);
+
+    Optional<OrderResponse> markOrderReadyIfAllItemsDone(Long orderId);
+
+    OrderResponse serveOrderItem(Long orderId, Long orderItemId, Long staffId, String idempotencyKey);
+
+    OrderResponse serveAllOrderItems(Long orderId, Long staffId, String idempotencyKey);
 }

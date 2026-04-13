@@ -93,13 +93,9 @@ public class KitchenServiceImpl implements KitchenService {
     }
 
     @Override
-    public KitchenTaskResponse completeTask(Long taskId, String idempotencyKey, String staffNote) {
+    public KitchenTaskResponse completeTask(Long taskId, String idempotencyKey) {
         return executeIdempotent(idempotencyKey, OP_COMPLETE_TASK, HttpStatus.OK.value(), KitchenTaskResponse.class, () -> {
             KitchenTask task = getTaskEntity(taskId);
-            String normalizedNote = normalizeOptionalText(staffNote);
-            if (normalizedNote != null) {
-                task.updateStaffNote(normalizedNote);
-            }
             task.complete();
             kitchenTaskRepository.save(task);
 
@@ -236,14 +232,6 @@ public class KitchenServiceImpl implements KitchenService {
         idempotencyKeyRepository.save(pendingKey);
 
         return response;
-    }
-
-    private String normalizeOptionalText(String value) {
-        if (value == null) {
-            return null;
-        }
-        String normalized = value.trim();
-        return normalized.isEmpty() ? null : normalized;
     }
 
 }
