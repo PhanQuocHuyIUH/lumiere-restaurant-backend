@@ -19,4 +19,8 @@ public interface OrderingService {
     OrderResponse getOrderDetail(Long orderId);
 
     List<OrderResponse> getOrders(OrderStatus status);
+
+    Long markOrderItemPreparing(Long orderItemId);
+
+    Long markOrderItemDone(Long orderItemId);
 }

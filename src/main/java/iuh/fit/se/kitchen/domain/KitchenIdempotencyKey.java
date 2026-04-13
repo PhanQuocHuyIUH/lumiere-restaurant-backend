@@ -1,4 +1,4 @@
-package iuh.fit.se.ordering.domain;
+package iuh.fit.se.kitchen.domain;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -23,7 +23,7 @@ import org.hibernate.type.SqlTypes;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @Builder
 @AllArgsConstructor(access = AccessLevel.PRIVATE)
-public class IdempotencyKey {
+public class KitchenIdempotencyKey {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -61,8 +61,8 @@ public class IdempotencyKey {
         }
     }
 
-    public static IdempotencyKey reserve(String module, String operation, String idemKey, Instant expiresAt) {
-        return IdempotencyKey.builder()
+    public static KitchenIdempotencyKey reserve(String module, String operation, String idemKey, Instant expiresAt) {
+        return KitchenIdempotencyKey.builder()
                 .module(module)
                 .operation(operation)
                 .idemKey(idemKey)

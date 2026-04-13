@@ -238,14 +238,52 @@ public class OrderingServiceImpl implements OrderingService {
                 .toList();
     }
 
+    @Override
+    public Long markOrderItemPreparing(Long orderItemId) {
+        OrderItem orderItem = getOrderItemEntity(orderItemId);
+        orderItem.startPreparing();
+        orderItemRepository.save(orderItem);
+
+        Long orderId = resolveOrderIdFromOrderItem(orderItem);
+        Order order = getOrderEntity(orderId);
+
+        if (order.getStatus() == OrderStatus.CONFIRMED) {
+            order.startPreparing();
+            orderRepository.save(order);
+        } else if (order.getStatus() != OrderStatus.PREPARING) {
+            throw new DomainException("Cannot start preparing item when order is in status: " + order.getStatus());
+        }
+
+        return orderId;
+    }
+
+    @Override
+    public Long markOrderItemDone(Long orderItemId) {
+        OrderItem orderItem = getOrderItemEntity(orderItemId);
+        orderItem.markDone();
+        orderItemRepository.save(orderItem);
+        return resolveOrderIdFromOrderItem(orderItem);
+    }
+
     private Order getOrderEntity(Long orderId) {
         return orderRepository.findById(orderId)
                 .orElseThrow(() -> new ResourceNotFoundException("Order", orderId));
     }
 
+    private OrderItem getOrderItemEntity(Long orderItemId) {
+        return orderItemRepository.findById(orderItemId)
+                .orElseThrow(() -> new ResourceNotFoundException("OrderItem", orderItemId));
+    }
+
     private OrderRevision getLatestRevision(Long orderId) {
         return orderRevisionRepository.findTopByOrderIdOrderByRevisionNumberDesc(orderId)
                 .orElseThrow(() -> new ResourceNotFoundException("OrderRevision", "orderId=" + orderId));
+    }
+
+    private Long resolveOrderIdFromOrderItem(OrderItem orderItem) {
+        OrderRevision orderRevision = orderRevisionRepository.findById(orderItem.getRevisionId())
+                .orElseThrow(() -> new ResourceNotFoundException("OrderRevision", orderItem.getRevisionId()));
+        return orderRevision.getOrderId();
     }
 
     private TableDTO validateTableCanReceiveOrders(String tableCode) {

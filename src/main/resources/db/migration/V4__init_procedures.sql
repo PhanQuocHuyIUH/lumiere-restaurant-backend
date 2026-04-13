@@ -104,11 +104,11 @@ END;
 $$;
 
 -- Delete expired idempotency key records to keep the table small.
-CREATE OR REPLACE PROCEDURE ordering.sp_cleanup_expired_idempotency_keys()
+CREATE OR REPLACE PROCEDURE shared.sp_cleanup_expired_idempotency_keys()
 LANGUAGE plpgsql
 AS $$
 BEGIN
-    DELETE FROM ordering.idempotency_keys
+    DELETE FROM shared.idempotency_keys
     WHERE expires_at < NOW();
 END;
 $$;

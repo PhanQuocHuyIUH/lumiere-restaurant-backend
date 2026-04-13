@@ -86,7 +86,7 @@ CREATE TABLE table_mgmt.qr_sessions (
 CREATE INDEX idx_qr_sessions_table_status ON table_mgmt.qr_sessions(table_id, status);
 CREATE INDEX idx_qr_sessions_expires_at   ON table_mgmt.qr_sessions(expires_at);
 
-CREATE TABLE ordering.idempotency_keys (
+CREATE TABLE shared.idempotency_keys (
     id              BIGINT        GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     idem_key        VARCHAR(200)  NOT NULL,
     module          VARCHAR(50)   NOT NULL,
@@ -97,8 +97,8 @@ CREATE TABLE ordering.idempotency_keys (
     created_at      TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
     CONSTRAINT uq_idempotency_scope UNIQUE (module, operation, idem_key)
 );
-CREATE INDEX idx_idem_scope   ON ordering.idempotency_keys(module, operation, idem_key);
-CREATE INDEX idx_idem_expires ON ordering.idempotency_keys(expires_at);
+CREATE INDEX idx_idem_scope   ON shared.idempotency_keys(module, operation, idem_key);
+CREATE INDEX idx_idem_expires ON shared.idempotency_keys(expires_at);
 
 CREATE TABLE ordering.orders (
     id            BIGINT            GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
