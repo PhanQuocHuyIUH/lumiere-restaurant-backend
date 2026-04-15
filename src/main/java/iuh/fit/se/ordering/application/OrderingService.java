@@ -17,6 +17,8 @@ public interface OrderingService {
 
     OrderResponse cancelOrder(Long orderId, String reason);
 
+    OrderResponse markOrderPaid(Long orderId);
+
     OrderResponse getOrderDetail(Long orderId);
 
     List<OrderResponse> getOrders(OrderStatus status);

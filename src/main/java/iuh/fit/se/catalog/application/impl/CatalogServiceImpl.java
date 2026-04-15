@@ -12,6 +12,7 @@ import iuh.fit.se.catalog.domain.QrSessionStatus;
 import iuh.fit.se.catalog.domain.MenuCategory;
 import iuh.fit.se.catalog.domain.MenuItem;
 import iuh.fit.se.catalog.domain.RestaurantTable;
+import iuh.fit.se.catalog.domain.TableStatus;
 import iuh.fit.se.catalog.domain.TableQrCode;
 import iuh.fit.se.catalog.domain.TableQrCodeStatus;
 import iuh.fit.se.catalog.infrastructure.QrSessionRepository;
@@ -204,6 +205,30 @@ public class CatalogServiceImpl implements CatalogService {
         qrCode.rotateTo(generateQrKey(), Instant.now().plus(Duration.ofDays(90)));
         TableQrCode savedQrCode = tableQrCodeRepository.save(qrCode);
         return toTableQrCodeDto(table, savedQrCode);
+    }
+
+    @Override
+    @Transactional
+    public void markTableOccupied(Long tableId) {
+        RestaurantTable table = getActiveTable(tableId);
+        if (table.getStatus() == TableStatus.OCCUPIED) {
+            return;
+        }
+
+        table.occupy();
+        restaurantTableRepository.save(table);
+    }
+
+    @Override
+    @Transactional
+    public void markTableAvailable(Long tableId) {
+        RestaurantTable table = getActiveTable(tableId);
+        if (table.getStatus() == TableStatus.AVAILABLE) {
+            return;
+        }
+
+        table.markAvailable();
+        restaurantTableRepository.save(table);
     }
 
     private MenuItem getActiveMenuItem(Long id) {

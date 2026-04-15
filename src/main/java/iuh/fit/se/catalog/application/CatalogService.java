@@ -24,4 +24,8 @@ public interface CatalogService {
     TableQrCodeDTO getOrCreateTableQrCode(String tableCode);
 
     TableQrCodeDTO rotateTableQrCode(String tableCode);
+
+    void markTableOccupied(Long tableId);
+
+    void markTableAvailable(Long tableId);
 }

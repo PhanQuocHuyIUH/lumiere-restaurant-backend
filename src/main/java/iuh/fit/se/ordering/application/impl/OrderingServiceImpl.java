@@ -138,6 +138,7 @@ public class OrderingServiceImpl implements OrderingService {
             );
 
             refreshOrderTotal(order, revision.getId());
+            catalogService.markTableOccupied(table.id());
 
             eventPublisher.publishEvent(new OrderCreatedEvent(order.getId(), order.getTableId()));
             return OrderResponse.from(order, revision.getRevisionNumber(), savedItems);
@@ -221,6 +222,24 @@ public class OrderingServiceImpl implements OrderingService {
         orderRepository.save(order);
 
         eventPublisher.publishEvent(new OrderCancelledEvent(order.getId(), normalizeCancelReason(reason)));
+        return toOrderResponse(order);
+    }
+
+    @Override
+    public OrderResponse markOrderPaid(Long orderId) {
+        Order order = getOrderEntity(orderId);
+
+        if (order.getStatus() == OrderStatus.PAID) {
+            return toOrderResponse(order);
+        }
+
+        if (order.getStatus() != OrderStatus.SERVED) {
+            throw new DomainException("Cannot mark order as paid when status is: " + order.getStatus());
+        }
+
+        order.pay();
+        orderRepository.save(order);
+        catalogService.markTableAvailable(order.getTableId());
         return toOrderResponse(order);
     }
 
