@@ -1,5 +1,7 @@
 CREATE TYPE staff_role_enum AS ENUM ('MANAGER', 'WAITER', 'CASHIER', 'KITCHEN');
 CREATE TYPE staff_status_enum AS ENUM ('ACTIVE', 'INACTIVE');
+CREATE TYPE menu_item_type_enum AS ENUM ('SINGLE', 'COMBO');
+CREATE TYPE combo_kind_enum AS ENUM ('FIXED', 'PICK');
 CREATE TYPE table_status_enum AS ENUM ('AVAILABLE', 'OCCUPIED', 'RESERVED', 'CLEANING');
 CREATE TYPE qr_code_status_enum AS ENUM ('ACTIVE', 'DISABLED', 'ROTATING');
 CREATE TYPE qr_session_status_enum AS ENUM ('ACTIVE', 'EXPIRED', 'REVOKED');

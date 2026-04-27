@@ -22,7 +22,9 @@ public record AddRevisionRequest(
             @Min(value = 1, message = "quantity must be greater than 0")
             Integer quantity,
 
-                        String note
+            String note,
+
+            CreateOrderRequest.ComboSelection comboSelection
     ) {
     }
 }

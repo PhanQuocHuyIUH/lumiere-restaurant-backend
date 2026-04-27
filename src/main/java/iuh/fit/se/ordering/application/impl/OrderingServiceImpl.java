@@ -1,9 +1,14 @@
 package iuh.fit.se.ordering.application.impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import iuh.fit.se.catalog.application.CatalogService;
-import iuh.fit.se.catalog.application.MenuItemDTO;
-import iuh.fit.se.catalog.application.TableDTO;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import iuh.fit.se.menu.api.dto.admin.MenuItemAdminDetailResponse;
+import iuh.fit.se.menu.application.MenuItemDTO;
+import iuh.fit.se.menu.application.MenuService;
+import iuh.fit.se.table.application.TableDTO;
+import iuh.fit.se.table.application.TableService;
+import iuh.fit.se.menu.domain.ComboKind;
+import iuh.fit.se.menu.domain.MenuItemType;
 import iuh.fit.se.ordering.api.dto.AddRevisionRequest;
 import iuh.fit.se.ordering.api.dto.CreateOrderRequest;
 import iuh.fit.se.ordering.api.dto.OrderResponse;
@@ -31,6 +36,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -79,7 +85,8 @@ public class OrderingServiceImpl implements OrderingService {
     private final OrderRevisionRepository orderRevisionRepository;
     private final OrderItemRepository orderItemRepository;
     private final IdempotencyKeyRepository idempotencyKeyRepository;
-    private final CatalogService catalogService;
+    private final MenuService menuService;
+    private final TableService tableService;
     private final ApplicationEventPublisher eventPublisher;
     private final ObjectMapper objectMapper;
 
@@ -88,7 +95,8 @@ public class OrderingServiceImpl implements OrderingService {
             OrderRevisionRepository orderRevisionRepository,
             OrderItemRepository orderItemRepository,
             IdempotencyKeyRepository idempotencyKeyRepository,
-            CatalogService catalogService,
+            MenuService menuService,
+            TableService tableService,
             ApplicationEventPublisher eventPublisher,
             ObjectMapper objectMapper
     ) {
@@ -96,7 +104,8 @@ public class OrderingServiceImpl implements OrderingService {
         this.orderRevisionRepository = orderRevisionRepository;
         this.orderItemRepository = orderItemRepository;
         this.idempotencyKeyRepository = idempotencyKeyRepository;
-        this.catalogService = catalogService;
+        this.menuService = menuService;
+        this.tableService = tableService;
         this.eventPublisher = eventPublisher;
         this.objectMapper = objectMapper;
     }
@@ -133,12 +142,10 @@ public class OrderingServiceImpl implements OrderingService {
                 );
             revision = orderRevisionRepository.save(revision);
 
-            List<OrderItem> savedItems = orderItemRepository.saveAll(
-                    buildOrderItemsForCreate(revision.getId(), request.items(), menuItems)
-            );
+            List<OrderItem> savedItems = persistCreateOrderItems(revision.getId(), request.items(), menuItems);
 
             refreshOrderTotal(order, revision.getId());
-            catalogService.markTableOccupied(table.id());
+            tableService.markTableOccupied(table.id());
 
             eventPublisher.publishEvent(new OrderCreatedEvent(order.getId(), order.getTableId()));
             return OrderResponse.from(order, revision.getRevisionNumber(), savedItems);
@@ -166,9 +173,7 @@ public class OrderingServiceImpl implements OrderingService {
                 );
             revision = orderRevisionRepository.save(revision);
 
-            List<OrderItem> savedItems = orderItemRepository.saveAll(
-                    buildOrderItemsForRevision(revision.getId(), request.items(), menuItems)
-            );
+            List<OrderItem> savedItems = persistRevisionItems(revision.getId(), request.items(), menuItems);
 
             if (request.note() != null && !request.note().isBlank()) {
                 order.updateNote(request.note().trim());
@@ -179,6 +184,7 @@ public class OrderingServiceImpl implements OrderingService {
                 orderRepository.save(order);
 
                 List<Long> orderItemIds = savedItems.stream()
+                        .filter(item -> !item.isComboParent())
                         .map(OrderItem::getId)
                         .toList();
                 eventPublisher.publishEvent(new OrderConfirmedEvent(order.getId(), orderItemIds));
@@ -207,6 +213,7 @@ public class OrderingServiceImpl implements OrderingService {
             List<OrderItem> latestItems = orderItemRepository.findAllByRevisionIdOrderByIdAsc(latestRevision.getId());
 
             List<Long> orderItemIds = latestItems.stream()
+                    .filter(item -> !item.isComboParent())
                     .map(OrderItem::getId)
                     .toList();
             eventPublisher.publishEvent(new OrderConfirmedEvent(order.getId(), orderItemIds));
@@ -239,7 +246,7 @@ public class OrderingServiceImpl implements OrderingService {
 
         order.pay();
         orderRepository.save(order);
-        catalogService.markTableAvailable(order.getTableId());
+        tableService.markTableAvailable(order.getTableId());
         return toOrderResponse(order);
     }
 
@@ -429,7 +436,7 @@ public class OrderingServiceImpl implements OrderingService {
     }
 
     private TableDTO validateTableCanReceiveOrders(String tableCode) {
-        TableDTO table = catalogService.getTableByCode(tableCode);
+        TableDTO table = tableService.getTableByCode(tableCode);
 
         String statusName = table.status() == null ? "UNKNOWN" : table.status().name();
         if (!"AVAILABLE".equals(statusName) && !"OCCUPIED".equals(statusName)) {
@@ -460,9 +467,7 @@ public class OrderingServiceImpl implements OrderingService {
         );
         revision = orderRevisionRepository.save(revision);
 
-        List<OrderItem> savedItems = orderItemRepository.saveAll(
-                buildOrderItemsForCreate(revision.getId(), request.items(), menuItems)
-        );
+        List<OrderItem> savedItems = persistCreateOrderItems(revision.getId(), request.items(), menuItems);
 
         if (request.note() != null && !request.note().isBlank()) {
             order.updateNote(request.note().trim());
@@ -473,6 +478,7 @@ public class OrderingServiceImpl implements OrderingService {
             orderRepository.save(order);
 
             List<Long> orderItemIds = savedItems.stream()
+                    .filter(item -> !item.isComboParent())
                     .map(OrderItem::getId)
                     .toList();
             eventPublisher.publishEvent(new OrderConfirmedEvent(order.getId(), orderItemIds));
@@ -485,7 +491,7 @@ public class OrderingServiceImpl implements OrderingService {
     private Map<Long, MenuItemDTO> resolveAvailableMenuItems(List<CreateOrderRequest.OrderItemRequest> items) {
         Map<Long, MenuItemDTO> menuItemsById = new HashMap<>();
         for (CreateOrderRequest.OrderItemRequest item : items) {
-            MenuItemDTO menuItem = menuItemsById.computeIfAbsent(item.menuItemId(), catalogService::getItem);
+            MenuItemDTO menuItem = menuItemsById.computeIfAbsent(item.menuItemId(), menuService::getItem);
             if (!menuItem.available()) {
                 throw new DomainException("Menu item not available: " + item.menuItemId());
             }
@@ -498,7 +504,7 @@ public class OrderingServiceImpl implements OrderingService {
     ) {
         Map<Long, MenuItemDTO> menuItemsById = new HashMap<>();
         for (AddRevisionRequest.RevisionItemRequest item : items) {
-            MenuItemDTO menuItem = menuItemsById.computeIfAbsent(item.menuItemId(), catalogService::getItem);
+            MenuItemDTO menuItem = menuItemsById.computeIfAbsent(item.menuItemId(), menuService::getItem);
             if (!menuItem.available()) {
                 throw new DomainException("Menu item not available: " + item.menuItemId());
             }
@@ -506,42 +512,249 @@ public class OrderingServiceImpl implements OrderingService {
         return menuItemsById;
     }
 
-    private List<OrderItem> buildOrderItemsForCreate(
+    private List<OrderItem> persistCreateOrderItems(
             Long revisionId,
             List<CreateOrderRequest.OrderItemRequest> requests,
             Map<Long, MenuItemDTO> menuItems
     ) {
-        return requests.stream()
-                .map(request -> {
-                    MenuItemDTO menuItem = menuItems.get(request.menuItemId());
-                    return OrderItem.create(
-                            revisionId,
-                            request.menuItemId(),
-                            request.quantity(),
-                            menuItem.price(),
-                            normalizeOptionalText(request.note())
-                    );
-                })
-                .toList();
+        List<OrderItem> all = new ArrayList<>();
+        List<OrderItem> singlesToSave = new ArrayList<>();
+
+        for (CreateOrderRequest.OrderItemRequest request : requests) {
+            MenuItemDTO menuItem = menuItems.get(request.menuItemId());
+            if (menuItem != null && menuItem.itemType() == MenuItemType.SINGLE) {
+                singlesToSave.addAll(createOrderItemsForRequest(
+                        revisionId,
+                        request.menuItemId(),
+                        request.quantity(),
+                        request.note(),
+                        null,
+                        menuItem
+                ));
+            } else {
+                all.addAll(createOrderItemsForRequest(
+                        revisionId,
+                        request.menuItemId(),
+                        request.quantity(),
+                        request.note(),
+                        request.comboSelection(),
+                        menuItem
+                ));
+            }
+        }
+
+        if (!singlesToSave.isEmpty()) {
+            all.addAll(orderItemRepository.saveAll(singlesToSave));
+        }
+        return all;
     }
 
-    private List<OrderItem> buildOrderItemsForRevision(
+    private List<OrderItem> persistRevisionItems(
             Long revisionId,
             List<AddRevisionRequest.RevisionItemRequest> requests,
             Map<Long, MenuItemDTO> menuItems
     ) {
-        return requests.stream()
-                .map(request -> {
-                    MenuItemDTO menuItem = menuItems.get(request.menuItemId());
-                    return OrderItem.create(
-                            revisionId,
-                            request.menuItemId(),
-                            request.quantity(),
-                            menuItem.price(),
-                            normalizeOptionalText(request.note())
-                    );
-                })
-                .toList();
+        List<OrderItem> all = new ArrayList<>();
+        List<OrderItem> singlesToSave = new ArrayList<>();
+
+        for (AddRevisionRequest.RevisionItemRequest request : requests) {
+            MenuItemDTO menuItem = menuItems.get(request.menuItemId());
+            if (menuItem != null && menuItem.itemType() == MenuItemType.SINGLE) {
+                singlesToSave.addAll(createOrderItemsForRequest(
+                        revisionId,
+                        request.menuItemId(),
+                        request.quantity(),
+                        request.note(),
+                        null,
+                        menuItem
+                ));
+            } else {
+                all.addAll(createOrderItemsForRequest(
+                        revisionId,
+                        request.menuItemId(),
+                        request.quantity(),
+                        request.note(),
+                        request.comboSelection(),
+                        menuItem
+                ));
+            }
+        }
+
+        if (!singlesToSave.isEmpty()) {
+            all.addAll(orderItemRepository.saveAll(singlesToSave));
+        }
+        return all;
+    }
+
+    private List<OrderItem> createOrderItemsForRequest(
+            Long revisionId,
+            Long menuItemId,
+            Integer quantity,
+            String note,
+            CreateOrderRequest.ComboSelection comboSelection,
+            MenuItemDTO menuItem
+    ) {
+        if (menuItem == null) {
+            throw new DomainException("Menu item not found: " + menuItemId);
+        }
+
+        if (menuItem.itemType() == null || menuItem.itemType() == MenuItemType.SINGLE) {
+            return List.of(OrderItem.create(
+                    revisionId,
+                    menuItemId,
+                    quantity,
+                    menuItem.price(),
+                    normalizeOptionalText(note)
+            ));
+        }
+
+        if (menuItem.comboKind() == null) {
+            throw new DomainException("Combo kind is required for combo item: " + menuItemId);
+        }
+
+        if (menuItem.comboKind() == ComboKind.FIXED) {
+            return createFixedComboOrderItems(revisionId, menuItemId, quantity, note);
+        }
+
+        return createPickComboOrderItems(revisionId, menuItemId, quantity, note, comboSelection);
+    }
+
+    private List<OrderItem> createFixedComboOrderItems(
+            Long revisionId,
+            Long comboItemId,
+            Integer comboQuantity,
+            String note
+    ) {
+        var detail = menuService.getMenuItemAdminDetail(comboItemId);
+        if (detail.getFixedCombo() == null || detail.getFixedCombo().getComponents() == null || detail.getFixedCombo().getComponents().isEmpty()) {
+            throw new DomainException("Fixed combo is missing components: " + comboItemId);
+        }
+
+        ObjectNode snapshot = objectMapper.createObjectNode();
+        snapshot.put("kind", "FIXED");
+        snapshot.put("comboItemId", comboItemId);
+        snapshot.set("components", objectMapper.valueToTree(detail.getFixedCombo().getComponents()));
+
+        OrderItem parent = OrderItem.createComboParent(
+                revisionId,
+                comboItemId,
+                comboQuantity,
+                detail.getPrice(),
+                snapshot,
+                normalizeOptionalText(note)
+        );
+        parent = orderItemRepository.save(parent);
+
+        List<OrderItem> childrenToSave = new ArrayList<>();
+        for (var component : detail.getFixedCombo().getComponents()) {
+            MenuItemDTO componentItem = menuService.getItem(component.getMenuItemId());
+            if (!componentItem.available()) {
+                throw new DomainException("Menu item not available: " + component.getMenuItemId());
+            }
+            int childQty = component.getQuantity() * comboQuantity;
+            childrenToSave.add(OrderItem.createComboChild(revisionId, parent.getId(), component.getMenuItemId(), childQty, null));
+        }
+        List<OrderItem> savedChildren = childrenToSave.isEmpty() ? List.of() : orderItemRepository.saveAll(childrenToSave);
+
+        List<OrderItem> result = new ArrayList<>();
+        result.add(parent);
+        result.addAll(savedChildren);
+        return result;
+    }
+
+    private List<OrderItem> createPickComboOrderItems(
+            Long revisionId,
+            Long comboItemId,
+            Integer comboQuantity,
+            String note,
+            CreateOrderRequest.ComboSelection comboSelection
+    ) {
+        if (comboSelection == null) {
+            throw new DomainException("comboSelection is required for pick combo: " + comboItemId);
+        }
+
+        var detail = menuService.getMenuItemAdminDetail(comboItemId);
+        if (detail.getPickCombo() == null || detail.getPickCombo().getSlots() == null || detail.getPickCombo().getSlots().isEmpty()) {
+            throw new DomainException("Pick combo is missing slots: " + comboItemId);
+        }
+
+        // validate slots exist and selections satisfy min/max + allowed items
+        Map<Long, MenuItemAdminDetailResponse.PickSlot> slotsById = new HashMap<>();
+        for (var slot : detail.getPickCombo().getSlots()) {
+            slotsById.put(slot.getId(), slot);
+        }
+
+        // ensure no duplicate slot selections
+        Set<Long> seenSlotIds = new LinkedHashSet<>();
+        for (var selectedSlot : comboSelection.slots()) {
+            if (!seenSlotIds.add(selectedSlot.slotId())) {
+                throw new DomainException("Duplicate slot selection: " + selectedSlot.slotId());
+            }
+
+            MenuItemAdminDetailResponse.PickSlot slot = slotsById.get(selectedSlot.slotId());
+            if (slot == null) {
+                throw new DomainException("Invalid slotId for combo: " + selectedSlot.slotId());
+            }
+
+            int selectedCount = selectedSlot.items().stream()
+                    .mapToInt(i -> i.quantity() == null ? 0 : i.quantity())
+                    .sum();
+            if (selectedCount < slot.getMinSelect() || selectedCount > slot.getMaxSelect()) {
+                throw new DomainException("Slot selection count out of range for slotId=" + slot.getId());
+            }
+
+            Set<Long> allowed = new LinkedHashSet<>(slot.getAllowedItemIds());
+            Set<Long> dupCheck = new LinkedHashSet<>();
+            for (var item : selectedSlot.items()) {
+                if (!dupCheck.add(item.menuItemId())) {
+                    throw new DomainException("Duplicate selected item in slotId=" + slot.getId() + ": " + item.menuItemId());
+                }
+                if (!allowed.contains(item.menuItemId())) {
+                    throw new DomainException("Selected item not allowed in slotId=" + slot.getId() + ": " + item.menuItemId());
+                }
+                MenuItemDTO selectedMenuItem = menuService.getItem(item.menuItemId());
+                if (!selectedMenuItem.available()) {
+                    throw new DomainException("Menu item not available: " + item.menuItemId());
+                }
+            }
+        }
+
+        // ensure all required slots are present
+        for (var slot : detail.getPickCombo().getSlots()) {
+            boolean present = comboSelection.slots().stream().anyMatch(s -> s.slotId().equals(slot.getId()));
+            if (!present && slot.getMinSelect() > 0) {
+                throw new DomainException("Missing required slot selection: " + slot.getId());
+            }
+        }
+
+        ObjectNode snapshot = objectMapper.createObjectNode();
+        snapshot.put("kind", "PICK");
+        snapshot.put("comboItemId", comboItemId);
+        snapshot.set("selection", objectMapper.valueToTree(comboSelection));
+
+        OrderItem parent = OrderItem.createComboParent(
+                revisionId,
+                comboItemId,
+                comboQuantity,
+                detail.getPrice(),
+                snapshot,
+                normalizeOptionalText(note)
+        );
+        parent = orderItemRepository.save(parent);
+
+        List<OrderItem> childrenToSave = new ArrayList<>();
+        for (var slotSel : comboSelection.slots()) {
+            for (var selectedItem : slotSel.items()) {
+                int childQty = selectedItem.quantity() * comboQuantity;
+                childrenToSave.add(OrderItem.createComboChild(revisionId, parent.getId(), selectedItem.menuItemId(), childQty, null));
+            }
+        }
+        List<OrderItem> savedChildren = childrenToSave.isEmpty() ? List.of() : orderItemRepository.saveAll(childrenToSave);
+
+        List<OrderItem> result = new ArrayList<>();
+        result.add(parent);
+        result.addAll(savedChildren);
+        return result;
     }
 
     private void refreshOrderTotal(Order order, Long revisionId) {
@@ -569,7 +782,7 @@ public class OrderingServiceImpl implements OrderingService {
     private RevisionActor resolveActorForCreate(String qrSessionId, String requestTableCode) {
         if (hasText(qrSessionId)) {
             try {
-                catalogService.validateQrSession(qrSessionId, requestTableCode);
+                tableService.validateQrSession(qrSessionId, requestTableCode);
             } catch (DomainException ex) {
                 throw new InsufficientAuthenticationException(ex.getMessage());
             }
@@ -581,9 +794,9 @@ public class OrderingServiceImpl implements OrderingService {
 
     private RevisionActor resolveActorForRevision(String qrSessionId, Order order) {
         if (hasText(qrSessionId)) {
-            TableDTO table = catalogService.getTableById(order.getTableId());
+            TableDTO table = tableService.getTableById(order.getTableId());
             try {
-                catalogService.validateQrSession(qrSessionId, table.tableCode());
+                tableService.validateQrSession(qrSessionId, table.tableCode());
             } catch (DomainException ex) {
                 throw new InsufficientAuthenticationException(ex.getMessage());
             }

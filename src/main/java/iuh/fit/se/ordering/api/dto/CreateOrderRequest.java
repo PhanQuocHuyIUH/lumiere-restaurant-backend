@@ -28,7 +28,36 @@ public record CreateOrderRequest(
             @Min(value = 1, message = "quantity must be greater than 0")
             Integer quantity,
 
-                        String note
+            String note,
+
+            ComboSelection comboSelection
+    ) {
+    }
+
+    public record ComboSelection(
+            @NotEmpty(message = "slots must not be empty")
+            @Valid
+            List<SlotSelection> slots
+    ) {
+    }
+
+    public record SlotSelection(
+            @NotNull(message = "slotId is required")
+            Long slotId,
+
+            @NotEmpty(message = "items must not be empty")
+            @Valid
+            List<SelectedItem> items
+    ) {
+    }
+
+    public record SelectedItem(
+            @NotNull(message = "menuItemId is required")
+            Long menuItemId,
+
+            @NotNull(message = "quantity is required")
+            @Min(value = 1, message = "quantity must be >= 1")
+            Integer quantity
     ) {
     }
 }

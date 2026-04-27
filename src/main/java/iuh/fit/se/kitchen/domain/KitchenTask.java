@@ -51,10 +51,16 @@ public class KitchenTask {
     @Generated(event = {EventType.INSERT, EventType.UPDATE})
     private Integer actualCookSeconds;
 
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private Instant createdAt;
+
     @PrePersist
     protected void onCreate() {
         if (this.status == null) {
             this.status = KitchenTaskStatus.CREATED;
+        }
+        if (this.createdAt == null) {
+            this.createdAt = Instant.now();
         }
     }
 

@@ -30,15 +30,56 @@ CREATE TABLE menu.menu_items (
     price          NUMERIC(12,2) NOT NULL CHECK (price >= 0),
     cook_time      INT           CHECK (cook_time >= 0),
     image_url      TEXT,
+    image_public_id VARCHAR(255),
     is_available   BOOLEAN       NOT NULL DEFAULT TRUE,
-    kitchen_label  VARCHAR(255),
-    kitchen_note   TEXT,
+    item_type      menu_item_type_enum NOT NULL DEFAULT 'SINGLE',
+    combo_kind     combo_kind_enum,
     created_at     TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
     updated_at     TIMESTAMPTZ,
-    deleted_at     TIMESTAMPTZ
+    deleted_at     TIMESTAMPTZ,
+    CONSTRAINT ck_menu_items_combo_kind CHECK (
+        (item_type = 'SINGLE' AND combo_kind IS NULL)
+            OR
+        (item_type = 'COMBO' AND combo_kind IS NOT NULL)
+    )
 );
 CREATE INDEX idx_menu_items_category  ON menu.menu_items(category_id);
 CREATE INDEX idx_menu_items_available ON menu.menu_items(is_available) WHERE deleted_at IS NULL;
+CREATE INDEX idx_menu_items_item_type ON menu.menu_items(item_type) WHERE deleted_at IS NULL;
+
+CREATE TABLE menu.combo_fixed_components (
+    id                BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    combo_item_id     BIGINT NOT NULL REFERENCES menu.menu_items(id) ON DELETE CASCADE,
+    component_item_id BIGINT NOT NULL REFERENCES menu.menu_items(id) ON DELETE RESTRICT,
+    quantity          INT    NOT NULL CHECK (quantity > 0),
+    created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_combo_fixed_component UNIQUE (combo_item_id, component_item_id),
+    CONSTRAINT ck_combo_fixed_no_self CHECK (combo_item_id <> component_item_id)
+    );
+CREATE INDEX idx_combo_fixed_combo ON menu.combo_fixed_components(combo_item_id);
+CREATE INDEX idx_combo_fixed_component ON menu.combo_fixed_components(component_item_id);
+
+CREATE TABLE menu.combo_pick_slots (
+    id            BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    combo_item_id BIGINT NOT NULL REFERENCES menu.menu_items(id) ON DELETE CASCADE,
+    name          VARCHAR(255) NOT NULL,
+    min_select    INT NOT NULL DEFAULT 0 CHECK (min_select >= 0),
+    max_select    INT NOT NULL CHECK (max_select >= 0),
+    display_order INT NOT NULL DEFAULT 0,
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT ck_combo_pick_slot_min_max CHECK (min_select <= max_select)
+    );
+CREATE INDEX idx_combo_pick_slots_combo ON menu.combo_pick_slots(combo_item_id);
+
+CREATE TABLE menu.combo_pick_slot_items (
+    id          BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    slot_id     BIGINT NOT NULL REFERENCES menu.combo_pick_slots(id) ON DELETE CASCADE,
+    menu_item_id BIGINT NOT NULL REFERENCES menu.menu_items(id) ON DELETE RESTRICT,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_combo_pick_slot_item UNIQUE (slot_id, menu_item_id)
+    );
+CREATE INDEX idx_combo_pick_slot_items_slot ON menu.combo_pick_slot_items(slot_id);
+CREATE INDEX idx_combo_pick_slot_items_item ON menu.combo_pick_slot_items(menu_item_id);
 
 CREATE TABLE table_mgmt.tables (
     id            BIGINT            GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -60,6 +101,8 @@ CREATE TABLE table_mgmt.table_qr_codes (
     id                     BIGINT              GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     table_id               BIGINT              NOT NULL UNIQUE REFERENCES table_mgmt.tables(id) ON DELETE CASCADE,
     qr_key                 VARCHAR(120)        NOT NULL UNIQUE,
+    qr_image_url           TEXT,
+    qr_image_public_id     VARCHAR(255),
     status                 qr_code_status_enum NOT NULL DEFAULT 'ACTIVE',
     rotate_after           TIMESTAMPTZ,
     last_issued_session_at TIMESTAMPTZ,
@@ -148,10 +191,23 @@ CREATE TABLE ordering.order_items (
     subtotal            NUMERIC(12,2)          GENERATED ALWAYS AS (quantity * unit_price) STORED,
     note                TEXT,
     status              order_item_status_enum NOT NULL DEFAULT 'PENDING',
-    created_at          TIMESTAMPTZ            NOT NULL DEFAULT NOW()
+    parent_order_item_id BIGINT                 REFERENCES ordering.order_items(id) ON DELETE CASCADE,
+    is_billable          BOOLEAN                NOT NULL DEFAULT TRUE,
+    is_combo_parent      BOOLEAN                NOT NULL DEFAULT FALSE,
+    combo_snapshot       JSONB,
+    created_at          TIMESTAMPTZ            NOT NULL DEFAULT NOW(),
+    CONSTRAINT ck_order_items_combo_parent CHECK (
+        (is_combo_parent = FALSE OR parent_order_item_id IS NULL)
+        ),
+    CONSTRAINT ck_order_items_child_not_billable CHECK (
+        (parent_order_item_id IS NULL)
+            OR
+        (parent_order_item_id IS NOT NULL AND is_billable = FALSE AND is_combo_parent = FALSE)
+        )
 );
 CREATE INDEX idx_order_items_revision  ON ordering.order_items(revision_id);
 CREATE INDEX idx_order_items_menu_item ON ordering.order_items(menu_item_id);
+CREATE INDEX idx_order_items_parent ON ordering.order_items(parent_order_item_id);
 
 
 CREATE TABLE kitchen.kitchen_tasks (
@@ -160,6 +216,7 @@ CREATE TABLE kitchen.kitchen_tasks (
     status          kitchen_task_status_enum NOT NULL DEFAULT 'CREATED',
     started_at      TIMESTAMPTZ,
     completed_at    TIMESTAMPTZ,
+    created_at      TIMESTAMPTZ              NOT NULL DEFAULT NOW(),
     actual_cook_seconds INT GENERATED ALWAYS AS (
         CASE
             WHEN started_at IS NOT NULL AND completed_at IS NOT NULL

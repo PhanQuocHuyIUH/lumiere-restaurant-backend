@@ -1,6 +1,7 @@
 package iuh.fit.se.ordering.domain;
 
 import iuh.fit.se.shared.exception.DomainException;
+import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -18,9 +19,11 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.Generated;
+import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.annotations.JdbcType;
 import org.hibernate.dialect.PostgreSQLEnumJdbcType;
 import org.hibernate.generator.EventType;
+import org.hibernate.type.SqlTypes;
 
 @Entity
 @Table(name = "order_items", schema = "ordering")
@@ -39,6 +42,21 @@ public class OrderItem {
 
     @Column(name = "menu_item_id")
     private Long menuItemId;
+
+    @Column(name = "parent_order_item_id")
+    private Long parentOrderItemId;
+
+    @Column(name = "is_billable", nullable = false)
+    @Builder.Default
+    private boolean billable = true;
+
+    @Column(name = "is_combo_parent", nullable = false)
+    @Builder.Default
+    private boolean comboParent = false;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "combo_snapshot", columnDefinition = "jsonb")
+    private JsonNode comboSnapshot;
 
     @Column(name = "quantity", nullable = false)
     private Integer quantity;
@@ -94,6 +112,35 @@ public class OrderItem {
                 .note(note)
                 .status(OrderItemStatus.PENDING)
                 .build();
+    }
+
+    public static OrderItem createComboParent(
+            Long revisionId,
+            Long comboMenuItemId,
+            Integer quantity,
+            BigDecimal comboUnitPrice,
+            JsonNode comboSnapshot,
+            String note
+    ) {
+        OrderItem parent = create(revisionId, comboMenuItemId, quantity, comboUnitPrice, note);
+        parent.billable = true;
+        parent.comboParent = true;
+        parent.comboSnapshot = comboSnapshot;
+        return parent;
+    }
+
+    public static OrderItem createComboChild(
+            Long revisionId,
+            Long parentOrderItemId,
+            Long componentMenuItemId,
+            Integer quantity,
+            String note
+    ) {
+        OrderItem child = create(revisionId, componentMenuItemId, quantity, BigDecimal.ZERO, note);
+        child.billable = false;
+        child.comboParent = false;
+        child.parentOrderItemId = parentOrderItemId;
+        return child;
     }
 
     public void startPreparing() {

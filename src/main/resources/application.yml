@@ -1,14 +1,31 @@
 spring:
+  docker:
+    compose:
+      enabled: false
   application:
     name: lumiere-restaurant-backend
+  config:
+    import: optional:file:.env[.properties]
+  servlet:
+    multipart:
+      max-file-size: ${SPRING_MULTIPART_MAX_FILE_SIZE}
+      max-request-size: ${SPRING_MULTIPART_MAX_REQUEST_SIZE}
   datasource:
-    url: jdbc:postgresql://localhost:5432/lumiere
-    username: ${DB_USER:postgres}
-    password: ${DB_PASS:root}
+    url: ${DB_URL}
+    username: ${DB_USER}
+    password: ${DB_PASS}
     driver-class-name: org.postgresql.Driver
+    # --- Option 1: Local (Docker) HikariCP ---
+    # hikari:
+    #   maximum-pool-size: 20
+    #   minimum-idle: 5
+    # --- Option 2: Supabase HikariCP ---
     hikari:
-      maximum-pool-size: 20
-      minimum-idle: 5
+      maximum-pool-size: 5
+      minimum-idle: 2
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
   jpa:
     hibernate:
       ddl-auto: validate
@@ -22,11 +39,21 @@ spring:
     enabled: true
     locations: classpath:db/migration
     baseline-on-migrate: true
-    # baseline-version: 3
+    baseline-version: 0
+    # --- Option 1: Local (Docker) Flyway ---
+    # (Bỏ url/user/password, nó sẽ tự dùng của datasource)
+    # --- Option 2: Supabase Flyway ---
+    url: ${DB_MIGRATION_URL}
+    user: ${DB_USER}
+    password: ${DB_PASS}
   security:
     jwt:
-      secret: ${JWT_SECRET:change-me-in-production-min-256-bits}
+      secret: ${JWT_SECRET}
       expiration: 86400000
+  jackson:
+    time-zone: UTC
+    serialization:
+      write-dates-as-timestamps: false
 server:
   port: 8080
 logging:
@@ -35,18 +62,42 @@ logging:
 
 app:
   qr:
-    base-url: ${QR_BASE_URL:http://localhost:8080/menu/tables/qr}
-    session-expiration: ${QR_SESSION_EXPIRATION:1800000}
+    base-url: ${QR_BASE_URL}
+    session-expiration: ${QR_SESSION_EXPIRATION}
   payment:
     vnpay:
-      endpoint: ${VNPAY_ENDPOINT:https://sandbox.vnpayment.vn/paymentv2/vpcpay.html}
-      refund-endpoint: ${VNPAY_REFUND_ENDPOINT:https://sandbox.vnpayment.vn/merchant_webapi/api/transaction}
-      tmn-code: ${VNPAY_TMN_CODE:}
-      hash-secret: ${VNPAY_HASH_SECRET:}
-      return-url: ${VNPAY_RETURN_URL:http://localhost:3000/payment-return}
-      ipn-url: ${VNPAY_IPN_URL:http://localhost:8080/payments/webhooks/vnpay}
-      command: ${VNPAY_COMMAND:pay}
-      version: ${VNPAY_VERSION:2.1.0}
+      endpoint: ${VNPAY_ENDPOINT}
+      refund-endpoint: ${VNPAY_REFUND_ENDPOINT}
+      tmn-code: ${VNPAY_TMN_CODE}
+      hash-secret: ${VNPAY_HASH_SECRET}
+      return-url: ${VNPAY_RETURN_URL}
+      ipn-url: ${VNPAY_IPN_URL}
+      command: ${VNPAY_COMMAND}
+      version: ${VNPAY_VERSION}
+  storage:
+    cloudinary:
+      cloud-name: ${CLOUDINARY_CLOUD_NAME}
+      api-key: ${CLOUDINARY_API_KEY}
+      api-secret: ${CLOUDINARY_API_SECRET}
+      menu-folder: ${CLOUDINARY_MENU_FOLDER}
+      table-qr-folder: ${CLOUDINARY_TABLE_QR_FOLDER}
+      max-file-size-bytes: ${CLOUDINARY_MAX_FILE_SIZE_BYTES}
+
+ai:
+  enabled: ${AI_ENABLED}
+  runtime-enabled: ${AI_RUNTIME_ENABLED}
+  base-url: ${AI_BASE_URL}
+  service-key: ${AI_SERVICE_KEY}
+  timeout-ms:
+    recommend: ${AI_TIMEOUT_RECOMMEND_MS}
+    forecast: ${AI_TIMEOUT_FORECAST_MS}
+    anomaly: ${AI_TIMEOUT_ANOMALY_MS}
+    chatbot: ${AI_TIMEOUT_CHATBOT_MS}
+    batching: ${AI_TIMEOUT_BATCHING_MS}
+  health-check:
+    enabled: ${AI_HEALTH_CHECK_ENABLED}
+    initial-delay-ms: ${AI_HEALTH_CHECK_INITIAL_DELAY_MS}
+    fixed-delay-ms: ${AI_HEALTH_CHECK_FIXED_DELAY_MS}
 
 springdoc:
   swagger-ui:

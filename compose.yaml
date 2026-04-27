@@ -4,14 +4,14 @@ services:
     container_name: lumiere-postgres
     environment:
       POSTGRES_DB: lumiere
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: root
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASS}
     ports:
       - "5432:5432"
     volumes:
       - lumiere-postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d lumiere"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d lumiere"]
       interval: 10s
       timeout: 5s
       retries: 10

@@ -16,9 +16,15 @@ public interface KitchenService {
 
     List<KitchenBatchResponse> getBatches(KitchenBatchStatus status);
 
+    List<KitchenBatchResponse> suggestBatches();
+
+    KitchenBatchResponse acceptBatch(Long batchId);
+
     KitchenBatchResponse confirmBatch(Long batchId);
 
     KitchenBatchResponse startBatch(Long batchId);
+
+    KitchenBatchResponse completeBatch(Long batchId);
 
     List<KitchenTaskResponse> createTasksForOrder(Long orderId, List<Long> orderItemIds);
 }

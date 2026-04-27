@@ -8,13 +8,7 @@ import iuh.fit.se.kitchen.domain.KitchenTaskStatus;
 import iuh.fit.se.shared.response.ApiResponse;
 import java.util.List;
 import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.PutMapping;
-import org.springframework.web.bind.annotation.RequestHeader;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/kitchen")
@@ -58,6 +52,17 @@ public class KitchenController {
         return ResponseEntity.ok(ApiResponse.ok(kitchenService.getBatches(status)));
     }
 
+    @PostMapping("/batches/suggest")
+    public ResponseEntity<ApiResponse<List<KitchenBatchResponse>>> suggestBatches() {
+        return ResponseEntity.ok(ApiResponse.ok("Kitchen batch suggestions generated", kitchenService.suggestBatches()));
+    }
+
+    @PutMapping("/batches/{id}/accept")
+    public ResponseEntity<ApiResponse<KitchenBatchResponse>> acceptBatch(@PathVariable("id") Long batchId) {
+        KitchenBatchResponse response = kitchenService.acceptBatch(batchId);
+        return ResponseEntity.ok(ApiResponse.ok("Kitchen batch accepted", response));
+    }
+
     @PutMapping("/batches/{id}/confirm")
     public ResponseEntity<ApiResponse<KitchenBatchResponse>> confirmBatch(@PathVariable("id") Long batchId) {
         KitchenBatchResponse response = kitchenService.confirmBatch(batchId);
@@ -68,5 +73,11 @@ public class KitchenController {
     public ResponseEntity<ApiResponse<KitchenBatchResponse>> startBatch(@PathVariable("id") Long batchId) {
         KitchenBatchResponse response = kitchenService.startBatch(batchId);
         return ResponseEntity.ok(ApiResponse.ok("Kitchen batch started", response));
+    }
+
+    @PutMapping("/batches/{id}/done")
+    public ResponseEntity<ApiResponse<KitchenBatchResponse>> completeBatch(@PathVariable("id") Long batchId) {
+        KitchenBatchResponse response = kitchenService.completeBatch(batchId);
+        return ResponseEntity.ok(ApiResponse.ok("Kitchen batch completed", response));
     }
 }

@@ -1,0 +1,18 @@
+package iuh.fit.se.table.infrastructure;
+
+import iuh.fit.se.table.domain.RestaurantTable;
+import java.util.Collection;
+import java.util.List;
+import java.util.Optional;
+import org.springframework.data.jpa.repository.JpaRepository;
+
+public interface RestaurantTableRepository extends JpaRepository<RestaurantTable, Long> {
+
+    List<RestaurantTable> findAllByDeletedAtIsNullOrderByFloorAscTableNoAsc();
+
+    List<RestaurantTable> findAllByIdInAndDeletedAtIsNull(Collection<Long> ids);
+
+    Optional<RestaurantTable> findByIdAndDeletedAtIsNull(Long id);
+
+    Optional<RestaurantTable> findByTableCodeAndDeletedAtIsNull(String tableCode);
+}

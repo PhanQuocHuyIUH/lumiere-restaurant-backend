@@ -9,12 +9,15 @@ public record OrderItemResponse(
         Long id,
         Long revisionId,
         Long menuItemId,
+        Long parentOrderItemId,
         Integer quantity,
         BigDecimal unitPrice,
         BigDecimal subtotal,
         String note,
         OrderItemStatus status,
-        Instant createdAt
+        Instant createdAt,
+        boolean billable,
+        boolean comboParent
 ) {
 
     public static OrderItemResponse from(OrderItem item) {
@@ -22,12 +25,15 @@ public record OrderItemResponse(
                 item.getId(),
                 item.getRevisionId(),
                 item.getMenuItemId(),
+                item.getParentOrderItemId(),
                 item.getQuantity(),
                 item.getUnitPrice(),
                 item.calculateSubtotal(),
                 item.getNote(),
                 item.getStatus(),
-                item.getCreatedAt()
+                item.getCreatedAt(),
+                item.isBillable(),
+                item.isComboParent()
         );
     }
 }

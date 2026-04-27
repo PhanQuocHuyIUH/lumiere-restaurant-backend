@@ -3,10 +3,29 @@ package iuh.fit.se.billing.infrastructure;
 import iuh.fit.se.billing.domain.Payment;
 import iuh.fit.se.billing.domain.PaymentProvider;
 import iuh.fit.se.billing.domain.PaymentStatus;
+import java.time.Instant;
 import java.util.Optional;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 public interface PaymentRepository extends JpaRepository<Payment, Long> {
+
+    @Query("""
+        select p
+        from Payment p
+        where (:fromTime is null or p.createdAt >= :fromTime)
+          and (:toTime is null or p.createdAt < :toTime)
+          and (:status is null or p.status = :status)
+        """)
+    Page<Payment> searchForAiExport(
+        @Param("fromTime") Instant fromTime,
+        @Param("toTime") Instant toTime,
+        @Param("status") PaymentStatus status,
+        Pageable pageable
+    );
 
     Optional<Payment> findTopByOrderIdOrderByCreatedAtDesc(Long orderId);
 

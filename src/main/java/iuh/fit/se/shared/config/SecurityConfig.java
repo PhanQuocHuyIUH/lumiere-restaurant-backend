@@ -1,5 +1,6 @@
 package iuh.fit.se.shared.config;
 
+import iuh.fit.se.shared.security.AiServiceKeyAuthFilter;
 import iuh.fit.se.shared.security.JwtAuthFilter;
 import java.util.List;
 import org.springframework.context.annotation.Bean;
@@ -25,9 +26,11 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 public class SecurityConfig {
 
     private final JwtAuthFilter jwtAuthFilter;
+    private final AiServiceKeyAuthFilter aiServiceKeyAuthFilter;
 
-    public SecurityConfig(JwtAuthFilter jwtAuthFilter) {
+    public SecurityConfig(JwtAuthFilter jwtAuthFilter, AiServiceKeyAuthFilter aiServiceKeyAuthFilter) {
         this.jwtAuthFilter = jwtAuthFilter;
+        this.aiServiceKeyAuthFilter = aiServiceKeyAuthFilter;
     }
 
     @Bean
@@ -39,22 +42,30 @@ public class SecurityConfig {
                 .formLogin(AbstractHttpConfigurer::disable)
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
+                        .requestMatchers("/internal/ai/**").hasRole("AI_SERVICE")
                         .requestMatchers(HttpMethod.POST, "/auth/login").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/menu/tables/qr/*/qr-init").permitAll()
+                    .requestMatchers(HttpMethod.GET, "/tables/qr/*/init", "/tables/qr/*/menu").permitAll()
                         .requestMatchers(HttpMethod.POST, "/orders", "/orders/*/revisions").permitAll()
                         .requestMatchers(HttpMethod.GET, "/payments/webhooks/vnpay").permitAll()
                         .requestMatchers(HttpMethod.POST, "/payments/webhooks/vnpay").permitAll()
                         .requestMatchers("/ws/**", "/ws").permitAll()
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
-                        .requestMatchers(HttpMethod.GET, "/menu/**", "/tables/**").hasAnyRole("WAITER", "MANAGER")
+                    .requestMatchers(HttpMethod.GET, "/menu/**").hasAnyRole("WAITER", "MANAGER")
+                    .requestMatchers(HttpMethod.PUT, "/tables/*/status").hasAnyRole("WAITER", "MANAGER")
+                    .requestMatchers(HttpMethod.GET, "/tables/**").hasAnyRole("WAITER", "CASHIER", "MANAGER")
                         .requestMatchers(HttpMethod.GET, "/kitchen/**").hasAnyRole("KITCHEN", "WAITER", "MANAGER")
                         .requestMatchers(HttpMethod.PUT, "/kitchen/**").hasAnyRole("KITCHEN", "MANAGER")
                         .requestMatchers(HttpMethod.PUT, "/orders/*/items/*/serve", "/orders/*/serve-all")
                         .hasAnyRole("WAITER", "MANAGER")
                         .requestMatchers("/orders/**").hasAnyRole("WAITER", "CASHIER", "MANAGER")
                         .requestMatchers("/payments/**").hasAnyRole("CASHIER", "MANAGER")
+                        .requestMatchers("/admin/inventory/**").hasRole("MANAGER")
+                        .requestMatchers("/admin/tables/**").hasRole("MANAGER")
+                        .requestMatchers(HttpMethod.GET, "/kitchen/inventory/**").hasAnyRole("KITCHEN", "MANAGER")
+                        .requestMatchers(HttpMethod.PUT, "/kitchen/inventory/**").hasAnyRole("KITCHEN", "MANAGER")
                         .requestMatchers("/analytics/**").hasRole("MANAGER")
                         .anyRequest().authenticated())
+                .addFilterBefore(aiServiceKeyAuthFilter, UsernamePasswordAuthenticationFilter.class)
                 .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
