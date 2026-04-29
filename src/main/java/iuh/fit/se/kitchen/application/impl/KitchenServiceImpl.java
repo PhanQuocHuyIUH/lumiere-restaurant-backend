@@ -8,13 +8,11 @@ import iuh.fit.se.kitchen.application.KitchenService;
 import iuh.fit.se.kitchen.domain.KitchenBatch;
 import iuh.fit.se.kitchen.domain.KitchenBatchItem;
 import iuh.fit.se.kitchen.domain.KitchenBatchStatus;
-import iuh.fit.se.kitchen.domain.KitchenIdempotencyKey;
 import iuh.fit.se.kitchen.domain.KitchenTask;
 import iuh.fit.se.kitchen.domain.KitchenTaskStatus;
 import iuh.fit.se.kitchen.infrastructure.BatchPerformanceRepository;
 import iuh.fit.se.kitchen.infrastructure.KitchenBatchItemRepository;
 import iuh.fit.se.kitchen.infrastructure.KitchenBatchRepository;
-import iuh.fit.se.kitchen.infrastructure.KitchenIdempotencyKeyRepository;
 import iuh.fit.se.kitchen.infrastructure.KitchenTaskRepository;
 import iuh.fit.se.ordering.application.OrderingService;
 import iuh.fit.se.ordering.domain.OrderItem;
@@ -22,13 +20,10 @@ import iuh.fit.se.ordering.infrastructure.OrderItemRepository;
 import iuh.fit.se.shared.event.BatchDoneEvent;
 import iuh.fit.se.shared.event.KitchenTaskDoneEvent;
 import iuh.fit.se.shared.exception.DomainException;
-import iuh.fit.se.shared.exception.IdempotencyConflictException;
 import iuh.fit.se.shared.exception.ResourceNotFoundException;
-import iuh.fit.se.shared.util.IdempotencyUtil;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Duration;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -37,9 +32,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Supplier;
 import org.springframework.dao.DataIntegrityViolationException;
-import org.springframework.http.HttpStatus;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -49,15 +42,10 @@ import org.springframework.context.ApplicationEventPublisher;
 @Transactional
 public class KitchenServiceImpl implements KitchenService {
 
-    private static final String IDEM_MODULE = "kitchen";
-    private static final String OP_START_TASK = "START_TASK";
-    private static final String OP_COMPLETE_TASK = "COMPLETE_TASK";
-
     private final KitchenTaskRepository kitchenTaskRepository;
     private final KitchenBatchItemRepository kitchenBatchItemRepository;
     private final BatchPerformanceRepository batchPerformanceRepository;
     private final KitchenBatchRepository kitchenBatchRepository;
-    private final KitchenIdempotencyKeyRepository idempotencyKeyRepository;
     private final OrderItemRepository orderItemRepository;
     private final OrderingService orderingService;
     private final ApplicationEventPublisher eventPublisher;
@@ -69,7 +57,6 @@ public class KitchenServiceImpl implements KitchenService {
             KitchenBatchItemRepository kitchenBatchItemRepository,
             BatchPerformanceRepository batchPerformanceRepository,
             KitchenBatchRepository kitchenBatchRepository,
-            KitchenIdempotencyKeyRepository idempotencyKeyRepository,
             OrderItemRepository orderItemRepository,
             OrderingService orderingService,
             ApplicationEventPublisher eventPublisher,
@@ -80,7 +67,6 @@ public class KitchenServiceImpl implements KitchenService {
         this.kitchenBatchItemRepository = kitchenBatchItemRepository;
         this.batchPerformanceRepository = batchPerformanceRepository;
         this.kitchenBatchRepository = kitchenBatchRepository;
-        this.idempotencyKeyRepository = idempotencyKeyRepository;
         this.orderItemRepository = orderItemRepository;
         this.orderingService = orderingService;
         this.eventPublisher = eventPublisher;
@@ -101,34 +87,30 @@ public class KitchenServiceImpl implements KitchenService {
     }
 
     @Override
-    public KitchenTaskResponse startTask(Long taskId, String idempotencyKey) {
-        return executeIdempotent(idempotencyKey, OP_START_TASK, HttpStatus.OK.value(), KitchenTaskResponse.class, () -> {
-            KitchenTask task = getTaskEntity(taskId);
-            task.startCooking();
-            kitchenTaskRepository.save(task);
+    public KitchenTaskResponse startTask(Long taskId) {
+        KitchenTask task = getTaskEntity(taskId);
+        task.startCooking();
+        kitchenTaskRepository.save(task);
 
-            orderingService.markOrderItemPreparing(task.getOrderItemId());
+        orderingService.markOrderItemPreparing(task.getOrderItemId());
 
-            KitchenTaskResponse response = KitchenTaskResponse.from(task);
-            messagingTemplate.convertAndSend("/topic/kitchen/tasks", response);
-            return response;
-        });
+        KitchenTaskResponse response = KitchenTaskResponse.from(task);
+        messagingTemplate.convertAndSend("/topic/kitchen/tasks", response);
+        return response;
     }
 
     @Override
-    public KitchenTaskResponse completeTask(Long taskId, String idempotencyKey) {
-        return executeIdempotent(idempotencyKey, OP_COMPLETE_TASK, HttpStatus.OK.value(), KitchenTaskResponse.class, () -> {
-            KitchenTask task = getTaskEntity(taskId);
-            task.complete();
-            kitchenTaskRepository.save(task);
+    public KitchenTaskResponse completeTask(Long taskId) {
+        KitchenTask task = getTaskEntity(taskId);
+        task.complete();
+        kitchenTaskRepository.save(task);
 
-            Long orderId = orderingService.markOrderItemDone(task.getOrderItemId());
-            eventPublisher.publishEvent(new KitchenTaskDoneEvent(task.getId(), task.getOrderItemId(), orderId));
+        Long orderId = orderingService.markOrderItemDone(task.getOrderItemId());
+        eventPublisher.publishEvent(new KitchenTaskDoneEvent(task.getId(), task.getOrderItemId(), orderId));
 
-            KitchenTaskResponse response = KitchenTaskResponse.from(task);
-            messagingTemplate.convertAndSend("/topic/kitchen/tasks", response);
-            return response;
-        });
+        KitchenTaskResponse response = KitchenTaskResponse.from(task);
+        messagingTemplate.convertAndSend("/topic/kitchen/tasks", response);
+        return response;
     }
 
     @Override
@@ -404,47 +386,6 @@ public class KitchenServiceImpl implements KitchenService {
         }
 
         return Math.max(actualMinutes, baselineFromTasks);
-    }
-
-    private <T> T executeIdempotent(
-            String rawKey,
-            String operation,
-            int responseStatus,
-            Class<T> responseClass,
-            Supplier<T> action
-    ) {
-        String normalizedKey = IdempotencyUtil.normalizeKey(rawKey);
-        Optional<KitchenIdempotencyKey> existingKeyOpt = idempotencyKeyRepository.findByModuleAndOperationAndIdemKey(
-                IDEM_MODULE,
-                operation,
-                normalizedKey
-        );
-        if (existingKeyOpt.isPresent()) {
-            KitchenIdempotencyKey existing = existingKeyOpt.get();
-            if (existing.isExpired(Instant.now())) {
-                idempotencyKeyRepository.delete(existing);
-                idempotencyKeyRepository.flush();
-            } else if (existing.hasResponseBody()) {
-                return IdempotencyUtil.fromJsonMap(objectMapper, existing.getResponseBody(), responseClass);
-            } else {
-                throw new IdempotencyConflictException(normalizedKey);
-            }
-        }
-
-        KitchenIdempotencyKey pendingKey = KitchenIdempotencyKey.reserve(
-                IDEM_MODULE,
-                operation,
-                normalizedKey,
-                IdempotencyUtil.defaultExpiry()
-        );
-        idempotencyKeyRepository.save(pendingKey);
-
-        T response = action.get();
-
-        pendingKey.markCompleted(responseStatus, IdempotencyUtil.toJsonMap(objectMapper, response));
-        idempotencyKeyRepository.save(pendingKey);
-
-        return response;
     }
 
 }

@@ -13,14 +13,12 @@ import iuh.fit.se.ordering.api.dto.AddRevisionRequest;
 import iuh.fit.se.ordering.api.dto.CreateOrderRequest;
 import iuh.fit.se.ordering.api.dto.OrderResponse;
 import iuh.fit.se.ordering.application.OrderingService;
-import iuh.fit.se.ordering.domain.IdempotencyKey;
 import iuh.fit.se.ordering.domain.Order;
 import iuh.fit.se.ordering.domain.OrderItem;
 import iuh.fit.se.ordering.domain.OrderItemStatus;
 import iuh.fit.se.ordering.domain.OrderRevision;
 import iuh.fit.se.ordering.domain.OrderStatus;
 import iuh.fit.se.ordering.domain.RevisionSource;
-import iuh.fit.se.ordering.infrastructure.IdempotencyKeyRepository;
 import iuh.fit.se.ordering.infrastructure.OrderItemRepository;
 import iuh.fit.se.ordering.infrastructure.OrderRepository;
 import iuh.fit.se.ordering.infrastructure.OrderRevisionRepository;
@@ -28,10 +26,8 @@ import iuh.fit.se.shared.event.OrderCancelledEvent;
 import iuh.fit.se.shared.event.OrderConfirmedEvent;
 import iuh.fit.se.shared.event.OrderCreatedEvent;
 import iuh.fit.se.shared.exception.DomainException;
-import iuh.fit.se.shared.exception.IdempotencyConflictException;
 import iuh.fit.se.shared.exception.ResourceNotFoundException;
 import iuh.fit.se.shared.security.JwtPrincipal;
-import iuh.fit.se.shared.util.IdempotencyUtil;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -55,13 +51,6 @@ import org.springframework.transaction.annotation.Transactional;
 @Transactional
 public class OrderingServiceImpl implements OrderingService {
 
-    private static final String MODULE = "ordering";
-    private static final String OP_CREATE_ORDER = "CREATE_ORDER";
-    private static final String OP_ADD_REVISION = "ADD_REVISION";
-    private static final String OP_CONFIRM_ORDER = "CONFIRM_ORDER";
-    private static final String OP_SERVE_ORDER_ITEM = "SERVE_ORDER_ITEM";
-    private static final String OP_SERVE_ALL_ORDER_ITEMS = "SERVE_ALL_ORDER_ITEMS";
-
     private static final Set<String> STAFF_ORDER_ROLES = Set.of("ROLE_WAITER", "ROLE_MANAGER");
     private static final Set<String> STAFF_CONFIRM_ROLES = Set.of("ROLE_WAITER", "ROLE_CASHIER", "ROLE_MANAGER");
 
@@ -84,7 +73,6 @@ public class OrderingServiceImpl implements OrderingService {
     private final OrderRepository orderRepository;
     private final OrderRevisionRepository orderRevisionRepository;
     private final OrderItemRepository orderItemRepository;
-    private final IdempotencyKeyRepository idempotencyKeyRepository;
     private final MenuService menuService;
     private final TableService tableService;
     private final ApplicationEventPublisher eventPublisher;
@@ -94,7 +82,6 @@ public class OrderingServiceImpl implements OrderingService {
             OrderRepository orderRepository,
             OrderRevisionRepository orderRevisionRepository,
             OrderItemRepository orderItemRepository,
-            IdempotencyKeyRepository idempotencyKeyRepository,
             MenuService menuService,
             TableService tableService,
             ApplicationEventPublisher eventPublisher,
@@ -103,7 +90,6 @@ public class OrderingServiceImpl implements OrderingService {
         this.orderRepository = orderRepository;
         this.orderRevisionRepository = orderRevisionRepository;
         this.orderItemRepository = orderItemRepository;
-        this.idempotencyKeyRepository = idempotencyKeyRepository;
         this.menuService = menuService;
         this.tableService = tableService;
         this.eventPublisher = eventPublisher;
@@ -111,13 +97,12 @@ public class OrderingServiceImpl implements OrderingService {
     }
 
     @Override
-    public OrderResponse createOrder(CreateOrderRequest request, String idempotencyKey, String qrSessionId) {
-        return executeIdempotent(idempotencyKey, OP_CREATE_ORDER, HttpStatus.CREATED.value(), () -> {
-            RevisionActor actor = resolveActorForCreate(qrSessionId, request.tableCode());
-            TableDTO table = validateTableCanReceiveOrders(request.tableCode());
-            Optional<Order> activeOrderOpt = orderRepository.findTopByTableIdAndStatusInOrderByCreatedAtDesc(
-                    table.id(),
-                    ACTIVE_ORDER_STATUSES
+    public OrderResponse createOrder(CreateOrderRequest request, String qrSessionId) {
+        RevisionActor actor = resolveActorForCreate(qrSessionId, request.tableCode());
+        TableDTO table = validateTableCanReceiveOrders(request.tableCode());
+        Optional<Order> activeOrderOpt = orderRepository.findTopByTableIdAndStatusInOrderByCreatedAtDesc(
+                table.id(),
+                ACTIVE_ORDER_STATUSES
             );
 
             if (activeOrderOpt.isPresent()) {
@@ -149,12 +134,16 @@ public class OrderingServiceImpl implements OrderingService {
 
             eventPublisher.publishEvent(new OrderCreatedEvent(order.getId(), order.getTableId()));
             return OrderResponse.from(order, revision.getRevisionNumber(), savedItems);
-        });
     }
 
     @Override
-    public OrderResponse addRevision(Long orderId, AddRevisionRequest request, String idempotencyKey, String qrSessionId) {
-        return executeIdempotent(idempotencyKey, OP_ADD_REVISION, HttpStatus.OK.value(), () -> {
+    public OrderResponse createOrder(CreateOrderRequest request, String qrSessionId, String idempotencyToken) {
+        // idempotency token no longer used in ordering module; keep compatibility
+        return createOrder(request, qrSessionId);
+    }
+
+    @Override
+    public OrderResponse addRevision(Long orderId, AddRevisionRequest request, String qrSessionId) {
             Order order = getOrderEntity(orderId);
             RevisionActor actor = resolveActorForRevision(qrSessionId, order);
             ensureCanAddRevision(order);
@@ -192,12 +181,10 @@ public class OrderingServiceImpl implements OrderingService {
 
             refreshOrderTotal(order, revision.getId());
             return OrderResponse.from(order, revision.getRevisionNumber(), savedItems);
-        });
     }
 
     @Override
-    public OrderResponse confirmOrder(Long orderId, String idempotencyKey) {
-        return executeIdempotent(idempotencyKey, OP_CONFIRM_ORDER, HttpStatus.OK.value(), () -> {
+    public OrderResponse confirmOrder(Long orderId) {
             Long staffId = resolveStaffIdForConfirm();
             Order order = getOrderEntity(orderId);
             ensureNoOtherConfirmedOrderInProgress(order);
@@ -219,7 +206,6 @@ public class OrderingServiceImpl implements OrderingService {
             eventPublisher.publishEvent(new OrderConfirmedEvent(order.getId(), orderItemIds));
 
             return OrderResponse.from(order, latestRevision.getRevisionNumber(), latestItems);
-        });
     }
 
     @Override
@@ -315,61 +301,57 @@ public class OrderingServiceImpl implements OrderingService {
     }
 
     @Override
-    public OrderResponse serveOrderItem(Long orderId, Long orderItemId, Long staffId, String idempotencyKey) {
-        return executeIdempotent(idempotencyKey, OP_SERVE_ORDER_ITEM, HttpStatus.OK.value(), () -> {
-            ensureValidStaffId(staffId);
+    public OrderResponse serveOrderItem(Long orderId, Long orderItemId, Long staffId) {
+        ensureValidStaffId(staffId);
 
-            Order order = getOrderEntity(orderId);
-            ensureOrderCanBeServed(order);
+        Order order = getOrderEntity(orderId);
+        ensureOrderCanBeServed(order);
 
-            OrderRevision latestRevision = getLatestRevision(orderId);
-            OrderItem orderItem = getOrderItemEntity(orderItemId);
-            ensureOrderItemInLatestRevision(orderId, latestRevision, orderItem);
+        OrderRevision latestRevision = getLatestRevision(orderId);
+        OrderItem orderItem = getOrderItemEntity(orderItemId);
+        ensureOrderItemInLatestRevision(orderId, latestRevision, orderItem);
 
-            if (orderItem.getStatus() == OrderItemStatus.DONE) {
-                orderItem.markServed();
-                orderItemRepository.save(orderItem);
-            } else if (orderItem.getStatus() != OrderItemStatus.SERVED) {
-                throw new DomainException("Cannot serve item in status: " + orderItem.getStatus());
-            }
+        if (orderItem.getStatus() == OrderItemStatus.DONE) {
+            orderItem.markServed();
+            orderItemRepository.save(orderItem);
+        } else if (orderItem.getStatus() != OrderItemStatus.SERVED) {
+            throw new DomainException("Cannot serve item in status: " + orderItem.getStatus());
+        }
 
-            List<OrderItem> latestItems = orderItemRepository.findAllByRevisionIdOrderByIdAsc(latestRevision.getId());
-            promoteOrderAfterServingIfEligible(order, staffId, latestItems);
+        List<OrderItem> latestItems = orderItemRepository.findAllByRevisionIdOrderByIdAsc(latestRevision.getId());
+        promoteOrderAfterServingIfEligible(order, staffId, latestItems);
 
-            return OrderResponse.from(order, latestRevision.getRevisionNumber(), latestItems);
-        });
+        return OrderResponse.from(order, latestRevision.getRevisionNumber(), latestItems);
     }
 
     @Override
-    public OrderResponse serveAllOrderItems(Long orderId, Long staffId, String idempotencyKey) {
-        return executeIdempotent(idempotencyKey, OP_SERVE_ALL_ORDER_ITEMS, HttpStatus.OK.value(), () -> {
-            ensureValidStaffId(staffId);
+    public OrderResponse serveAllOrderItems(Long orderId, Long staffId) {
+        ensureValidStaffId(staffId);
 
-            Order order = getOrderEntity(orderId);
-            ensureOrderCanBeServed(order);
+        Order order = getOrderEntity(orderId);
+        ensureOrderCanBeServed(order);
 
-            OrderRevision latestRevision = getLatestRevision(orderId);
-            List<OrderItem> latestItems = orderItemRepository.findAllByRevisionIdOrderByIdAsc(latestRevision.getId());
+        OrderRevision latestRevision = getLatestRevision(orderId);
+        List<OrderItem> latestItems = orderItemRepository.findAllByRevisionIdOrderByIdAsc(latestRevision.getId());
 
-            List<OrderItem> changedItems = new ArrayList<>();
-            for (OrderItem item : latestItems) {
-                if (item.getStatus() == OrderItemStatus.DONE) {
-                    item.markServed();
-                    changedItems.add(item);
-                } else if (item.getStatus() != OrderItemStatus.SERVED) {
-                    throw new DomainException(
-                            "Cannot serve all items because item " + item.getId() + " is in status: " + item.getStatus()
-                    );
-                }
+        List<OrderItem> changedItems = new ArrayList<>();
+        for (OrderItem item : latestItems) {
+            if (item.getStatus() == OrderItemStatus.DONE) {
+                item.markServed();
+                changedItems.add(item);
+            } else if (item.getStatus() != OrderItemStatus.SERVED) {
+                throw new DomainException(
+                        "Cannot serve all items because item " + item.getId() + " is in status: " + item.getStatus()
+                );
             }
+        }
 
-            if (!changedItems.isEmpty()) {
-                orderItemRepository.saveAll(changedItems);
-            }
+        if (!changedItems.isEmpty()) {
+            orderItemRepository.saveAll(changedItems);
+        }
 
-            promoteOrderAfterServingIfEligible(order, staffId, latestItems);
-            return OrderResponse.from(order, latestRevision.getRevisionNumber(), latestItems);
-        });
+        promoteOrderAfterServingIfEligible(order, staffId, latestItems);
+        return OrderResponse.from(order, latestRevision.getRevisionNumber(), latestItems);
     }
 
     private Order getOrderEntity(Long orderId) {
@@ -854,47 +836,6 @@ public class OrderingServiceImpl implements OrderingService {
 
     private boolean hasText(String value) {
         return value != null && !value.isBlank();
-    }
-
-    private OrderResponse executeIdempotent(
-            String rawKey,
-            String operation,
-            int responseStatus,
-            Supplier<OrderResponse> action
-    ) {
-        String normalizedKey = IdempotencyUtil.normalizeKey(rawKey);
-
-        Optional<IdempotencyKey> existingKeyOpt = idempotencyKeyRepository.findByModuleAndOperationAndIdemKey(
-            MODULE,
-            operation,
-            normalizedKey
-        );
-        if (existingKeyOpt.isPresent()) {
-            IdempotencyKey existing = existingKeyOpt.get();
-            if (existing.isExpired(Instant.now())) {
-                idempotencyKeyRepository.delete(existing);
-                idempotencyKeyRepository.flush();
-            } else if (existing.hasResponseBody()) {
-                return IdempotencyUtil.fromJsonMap(objectMapper, existing.getResponseBody(), OrderResponse.class);
-            } else {
-                throw new IdempotencyConflictException(normalizedKey);
-            }
-        }
-
-        IdempotencyKey pendingKey = IdempotencyKey.reserve(
-                MODULE,
-                operation,
-                normalizedKey,
-                IdempotencyUtil.defaultExpiry()
-        );
-        idempotencyKeyRepository.save(pendingKey);
-
-        OrderResponse response = action.get();
-
-        pendingKey.markCompleted(responseStatus, IdempotencyUtil.toJsonMap(objectMapper, response));
-        idempotencyKeyRepository.save(pendingKey);
-
-        return response;
     }
 
     private OrderResponse toOrderResponse(Order order) {

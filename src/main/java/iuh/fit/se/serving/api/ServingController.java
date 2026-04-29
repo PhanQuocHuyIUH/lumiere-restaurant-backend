@@ -23,19 +23,17 @@ public class ServingController {
     @PutMapping("/{id}/items/{itemId}/serve")
     public ResponseEntity<ApiResponse<OrderResponse>> serveItem(
             @PathVariable("id") Long orderId,
-            @PathVariable("itemId") Long orderItemId,
-            @RequestHeader("X-Idempotency-Key") String idempotencyKey
+            @PathVariable("itemId") Long orderItemId
     ) {
-        OrderResponse response = servingService.serveItem(orderId, orderItemId, idempotencyKey);
+        OrderResponse response = servingService.serveItem(orderId, orderItemId);
         return ResponseEntity.ok(ApiResponse.ok("Order item served", response));
     }
 
     @PutMapping("/{id}/serve-all")
     public ResponseEntity<ApiResponse<OrderResponse>> serveAllItems(
-            @PathVariable("id") Long orderId,
-            @RequestHeader("X-Idempotency-Key") String idempotencyKey
+            @PathVariable("id") Long orderId
     ) {
-        OrderResponse response = servingService.serveAllItems(orderId, idempotencyKey);
+        OrderResponse response = servingService.serveAllItems(orderId);
         return ResponseEntity.ok(ApiResponse.ok("Order served", response));
     }
 }

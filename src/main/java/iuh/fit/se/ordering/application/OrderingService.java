@@ -9,11 +9,14 @@ import java.util.Optional;
 
 public interface OrderingService {
 
-    OrderResponse createOrder(CreateOrderRequest request, String idempotencyKey, String qrSessionId);
+    OrderResponse createOrder(CreateOrderRequest request, String qrSessionId);
+    
+    // Backwards-compatible overload for tests/clients that still pass an idempotency token
+    OrderResponse createOrder(CreateOrderRequest request, String qrSessionId, String idempotencyToken);
 
-    OrderResponse addRevision(Long orderId, AddRevisionRequest request, String idempotencyKey, String qrSessionId);
+    OrderResponse addRevision(Long orderId, AddRevisionRequest request, String qrSessionId);
 
-    OrderResponse confirmOrder(Long orderId, String idempotencyKey);
+    OrderResponse confirmOrder(Long orderId);
 
     OrderResponse cancelOrder(Long orderId, String reason);
 
@@ -29,7 +32,7 @@ public interface OrderingService {
 
     Optional<OrderResponse> markOrderReadyIfAllItemsDone(Long orderId);
 
-    OrderResponse serveOrderItem(Long orderId, Long orderItemId, Long staffId, String idempotencyKey);
+    OrderResponse serveOrderItem(Long orderId, Long orderItemId, Long staffId);
 
-    OrderResponse serveAllOrderItems(Long orderId, Long staffId, String idempotencyKey);
+    OrderResponse serveAllOrderItems(Long orderId, Long staffId);
 }

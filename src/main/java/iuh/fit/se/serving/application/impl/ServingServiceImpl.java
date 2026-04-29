@@ -38,17 +38,17 @@ public class ServingServiceImpl implements ServingService {
     }
 
     @Override
-    public OrderResponse serveItem(Long orderId, Long orderItemId, String idempotencyKey) {
+    public OrderResponse serveItem(Long orderId, Long orderItemId) {
         Long staffId = resolveStaffIdForServing();
-        OrderResponse response = orderingService.serveOrderItem(orderId, orderItemId, staffId, idempotencyKey);
+        OrderResponse response = orderingService.serveOrderItem(orderId, orderItemId, staffId);
         pushTableServingUpdateIfServed(response);
         return response;
     }
 
     @Override
-    public OrderResponse serveAllItems(Long orderId, String idempotencyKey) {
+    public OrderResponse serveAllItems(Long orderId) {
         Long staffId = resolveStaffIdForServing();
-        OrderResponse response = orderingService.serveAllOrderItems(orderId, staffId, idempotencyKey);
+        OrderResponse response = orderingService.serveAllOrderItems(orderId, staffId);
         pushTableServingUpdateIfServed(response);
         return response;
     }

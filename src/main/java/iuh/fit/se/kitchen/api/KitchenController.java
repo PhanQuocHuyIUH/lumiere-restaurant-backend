@@ -29,19 +29,17 @@ public class KitchenController {
 
     @PutMapping("/tasks/{id}/start")
     public ResponseEntity<ApiResponse<KitchenTaskResponse>> startTask(
-            @PathVariable("id") Long taskId,
-            @RequestHeader("X-Idempotency-Key") String idempotencyKey
+            @PathVariable("id") Long taskId
     ) {
-        KitchenTaskResponse response = kitchenService.startTask(taskId, idempotencyKey);
+        KitchenTaskResponse response = kitchenService.startTask(taskId);
         return ResponseEntity.ok(ApiResponse.ok("Kitchen task started", response));
     }
 
     @PutMapping("/tasks/{id}/done")
     public ResponseEntity<ApiResponse<KitchenTaskResponse>> completeTask(
-            @PathVariable("id") Long taskId,
-            @RequestHeader("X-Idempotency-Key") String idempotencyKey
+            @PathVariable("id") Long taskId
     ) {
-        KitchenTaskResponse response = kitchenService.completeTask(taskId, idempotencyKey);
+        KitchenTaskResponse response = kitchenService.completeTask(taskId);
         return ResponseEntity.ok(ApiResponse.ok("Kitchen task completed", response));
     }
 

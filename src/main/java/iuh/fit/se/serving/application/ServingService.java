@@ -6,7 +6,7 @@ public interface ServingService {
 
     void handleKitchenTaskDone(Long orderId);
 
-    OrderResponse serveItem(Long orderId, Long orderItemId, String idempotencyKey);
+    OrderResponse serveItem(Long orderId, Long orderItemId);
 
-    OrderResponse serveAllItems(Long orderId, String idempotencyKey);
+    OrderResponse serveAllItems(Long orderId);
 }

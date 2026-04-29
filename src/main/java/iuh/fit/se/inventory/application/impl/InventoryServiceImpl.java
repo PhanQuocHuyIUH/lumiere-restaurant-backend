@@ -21,6 +21,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.cache.annotation.CacheEvict;
 
 @Service
 @Transactional(readOnly = true)
@@ -92,6 +93,7 @@ public class InventoryServiceImpl implements InventoryService {
 
     @Override
     @Transactional
+    @CacheEvict(value = "menu", allEntries = true)
     public IngredientResponse importStock(ImportStockRequest request, Long staffId) {
         Ingredient ingredient = getActiveIngredient(request.ingredientId());
         BigDecimal quantityBefore = ingredient.getCurrentQty();
@@ -116,6 +118,7 @@ public class InventoryServiceImpl implements InventoryService {
 
     @Override
     @Transactional
+    @CacheEvict(value = "menu", allEntries = true)
     public IngredientResponse adjustStock(Long ingredientId, AdjustStockRequest request, Long staffId) {
         Ingredient ingredient = getActiveIngredient(ingredientId);
         BigDecimal quantityBefore = ingredient.getCurrentQty();

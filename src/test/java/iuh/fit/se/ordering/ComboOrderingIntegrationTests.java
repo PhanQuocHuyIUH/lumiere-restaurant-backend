@@ -83,7 +83,7 @@ class ComboOrderingIntegrationTests {
                 List.of(new CreateOrderRequest.OrderItemRequest(comboId, 1, null, null))
         );
 
-        OrderResponse response = orderingService.createOrder(request, UUID.randomUUID().toString(), null);
+        OrderResponse response = orderingService.createOrder(request, null);
 
         assertThat(response.totalAmount()).isEqualByComparingTo(comboPrice);
 
@@ -157,7 +157,7 @@ class ComboOrderingIntegrationTests {
                 ))
         );
 
-        OrderResponse response = orderingService.createOrder(request, UUID.randomUUID().toString(), null);
+        OrderResponse response = orderingService.createOrder(request, null);
         assertThat(response.totalAmount()).isEqualByComparingTo(menuService.getItem(comboId).price());
 
         List<OrderItem> saved = orderItemRepository.findAllByRevisionIdOrderByIdAsc(

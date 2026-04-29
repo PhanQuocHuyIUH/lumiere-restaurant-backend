@@ -57,9 +57,6 @@ public class Payment {
     @Builder.Default
     private PaymentStatus status = PaymentStatus.PENDING;
 
-    @Column(name = "idempotency_key", nullable = false, length = 200)
-    private String idempotencyKey;
-
     @Column(name = "provider_transaction_id")
     private String providerTransactionId;
 
@@ -124,7 +121,6 @@ public class Payment {
             BigDecimal amount,
             PaymentMethod paymentMethod,
             PaymentProvider provider,
-            String idempotencyKey,
             Long cashierId
     ) {
         return Payment.builder()
@@ -133,7 +129,6 @@ public class Payment {
                 .paymentMethod(paymentMethod)
                 .provider(provider)
                 .status(PaymentStatus.PENDING)
-                .idempotencyKey(idempotencyKey)
                 .cashierId(cashierId)
                 .build();
     }

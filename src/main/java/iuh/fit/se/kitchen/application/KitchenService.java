@@ -10,9 +10,9 @@ public interface KitchenService {
 
     List<KitchenTaskResponse> getTasks(KitchenTaskStatus status);
 
-    KitchenTaskResponse startTask(Long taskId, String idempotencyKey);
+    KitchenTaskResponse startTask(Long taskId);
 
-    KitchenTaskResponse completeTask(Long taskId, String idempotencyKey);
+    KitchenTaskResponse completeTask(Long taskId);
 
     List<KitchenBatchResponse> getBatches(KitchenBatchStatus status);
 

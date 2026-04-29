@@ -54,6 +54,7 @@ public class TableServiceImpl implements TableService {
     private final TableQrCodeRepository tableQrCodeRepository;
     private final QrSessionRepository qrSessionRepository;
     private final ImageStorageService imageStorageService;
+    private final QrSessionCacheService qrSessionCacheService;
 
     @Value("${app.qr.base-url:http://localhost:8080/tables/qr}")
     private String qrBaseUrl;
@@ -65,12 +66,14 @@ public class TableServiceImpl implements TableService {
             RestaurantTableRepository restaurantTableRepository,
             TableQrCodeRepository tableQrCodeRepository,
             QrSessionRepository qrSessionRepository,
-            ImageStorageService imageStorageService
+            ImageStorageService imageStorageService,
+            QrSessionCacheService qrSessionCacheService
     ) {
         this.restaurantTableRepository = restaurantTableRepository;
         this.tableQrCodeRepository = tableQrCodeRepository;
         this.qrSessionRepository = qrSessionRepository;
         this.imageStorageService = imageStorageService;
+        this.qrSessionCacheService = qrSessionCacheService;
     }
 
     @Override
@@ -117,11 +120,13 @@ public class TableServiceImpl implements TableService {
             session = activeSessionOpt.get();
             session.touchAccess();
             qrSessionRepository.save(session);
+            try { qrSessionCacheService.save(session); } catch (Exception ex) { /* best-effort */ }
         } else {
             if (activeSessionOpt.isPresent()) {
                 QrSession staleSession = activeSessionOpt.get();
                 staleSession.markExpired();
                 qrSessionRepository.save(staleSession);
+                try { qrSessionCacheService.delete(staleSession.getSessionId()); } catch (Exception ex) { }
             }
 
             String sessionId = UUID.randomUUID().toString();
@@ -135,6 +140,7 @@ public class TableServiceImpl implements TableService {
                     "customer"
             );
             session = qrSessionRepository.save(session);
+            try { qrSessionCacheService.save(session); } catch (Exception ex) { }
         }
 
         qrCode.markIssuedSession();
@@ -149,8 +155,10 @@ public class TableServiceImpl implements TableService {
         String normalizedSessionId = normalizeSessionId(sessionId);
         RestaurantTable table = getActiveTable(tableCode);
 
-        QrSession session = qrSessionRepository.findBySessionId(normalizedSessionId)
-                .orElseThrow(() -> new DomainException("Invalid QR session"));
+        // Try cache first
+        QrSession session = qrSessionCacheService.get(normalizedSessionId)
+                .orElseGet(() -> qrSessionRepository.findBySessionId(normalizedSessionId)
+                        .orElseThrow(() -> new DomainException("Invalid QR session")));
 
         if (!session.getTableId().equals(table.getId())) {
             throw new DomainException("QR session does not belong to table: " + tableCode);
@@ -161,12 +169,14 @@ public class TableServiceImpl implements TableService {
             if (session.getStatus() == QrSessionStatus.ACTIVE) {
                 session.markExpired();
                 qrSessionRepository.save(session);
+                try { qrSessionCacheService.delete(session.getSessionId()); } catch (Exception ex) { }
             }
             throw new DomainException("QR session expired or revoked");
         }
 
         session.touchAccess();
         qrSessionRepository.save(session);
+        try { qrSessionCacheService.save(session); } catch (Exception ex) { }
     }
 
     @Override

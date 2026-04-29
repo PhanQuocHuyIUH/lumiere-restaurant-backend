@@ -51,9 +51,6 @@ public class Refund {
     @Builder.Default
     private RefundStatus status = RefundStatus.INITIATED;
 
-    @Column(name = "idempotency_key", nullable = false, length = 200)
-    private String idempotencyKey;
-
     @Column(name = "provider_refund_id")
     private String providerRefundId;
 
@@ -88,14 +85,12 @@ public class Refund {
             Long paymentId,
             BigDecimal amount,
             String reason,
-            String idempotencyKey,
             Long requestedBy
     ) {
         return Refund.builder()
                 .paymentId(paymentId)
                 .amount(amount)
                 .reason(reason)
-                .idempotencyKey(idempotencyKey)
                 .requestedBy(requestedBy)
                 .status(RefundStatus.INITIATED)
                 .build();

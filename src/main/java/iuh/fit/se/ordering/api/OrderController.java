@@ -33,11 +33,10 @@ public class OrderController {
 
     @PostMapping
     public ResponseEntity<ApiResponse<OrderResponse>> createOrder(
-            @RequestHeader("X-Idempotency-Key") String idempotencyKey,
             @RequestHeader(value = "X-QR-Session", required = false) String qrSessionId,
             @Valid @RequestBody CreateOrderRequest request
     ) {
-        OrderResponse response = orderingService.createOrder(request, idempotencyKey, qrSessionId);
+        OrderResponse response = orderingService.createOrder(request, qrSessionId);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.ok("Order created successfully", response));
     }
@@ -57,20 +56,18 @@ public class OrderController {
     @PostMapping("/{id}/revisions")
     public ResponseEntity<ApiResponse<OrderResponse>> addRevision(
             @PathVariable("id") Long orderId,
-            @RequestHeader("X-Idempotency-Key") String idempotencyKey,
             @RequestHeader(value = "X-QR-Session", required = false) String qrSessionId,
             @Valid @RequestBody AddRevisionRequest request
     ) {
-        OrderResponse response = orderingService.addRevision(orderId, request, idempotencyKey, qrSessionId);
+        OrderResponse response = orderingService.addRevision(orderId, request, qrSessionId);
         return ResponseEntity.ok(ApiResponse.ok("Order revision added", response));
     }
 
     @PutMapping("/{id}/confirm")
     public ResponseEntity<ApiResponse<OrderResponse>> confirmOrder(
-            @PathVariable("id") Long orderId,
-            @RequestHeader("X-Idempotency-Key") String idempotencyKey
+            @PathVariable("id") Long orderId
     ) {
-        OrderResponse response = orderingService.confirmOrder(orderId, idempotencyKey);
+        OrderResponse response = orderingService.confirmOrder(orderId);
         return ResponseEntity.ok(ApiResponse.ok("Order confirmed", response));
     }
 

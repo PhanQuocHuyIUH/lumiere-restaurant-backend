@@ -49,6 +49,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.CacheEvict;
 
 @Service
 @Transactional(readOnly = true)
@@ -86,6 +88,7 @@ public class MenuServiceImpl implements MenuService {
     }
 
     @Override
+    @Cacheable(value = "menu", key = "'full'")
     public List<MenuCategoryResponse> getMenu() {
         List<MenuCategory> categories = menuCategoryRepository.findAllByDeletedAtIsNullOrderByDisplayOrderAscIdAsc();
         List<MenuItem> menuItems = menuItemRepository.findAllByDeletedAtIsNullOrderByIdAsc();
@@ -106,6 +109,7 @@ public class MenuServiceImpl implements MenuService {
     }
 
     @Override
+    @Cacheable(value = "menu", key = "'customer'")
     public List<CustomerMenuCategoryResponse> getCustomerMenu() {
         List<MenuCategory> categories = menuCategoryRepository.findAllByDeletedAtIsNullOrderByDisplayOrderAscIdAsc();
         List<MenuItem> menuItems = menuItemRepository.findAllByDeletedAtIsNullOrderByIdAsc();
@@ -129,12 +133,14 @@ public class MenuServiceImpl implements MenuService {
     }
 
     @Override
+    @Cacheable(value = "menu", key = "'item:' + #id")
     public MenuItemDTO getItem(Long id) {
         return MenuItemDTO.from(getActiveMenuItem(id));
     }
 
     @Override
     @Transactional
+    @CacheEvict(value = "menu", allEntries = true)
     public MenuItemDTO updateMenuItemImage(Long id, MultipartFile file) {
         MenuItem menuItem = getActiveMenuItem(id);
         String previousPublicId = menuItem.getImagePublicId();
@@ -153,6 +159,7 @@ public class MenuServiceImpl implements MenuService {
 
     @Override
     @Transactional
+    @CacheEvict(value = "menu", allEntries = true)
     public MenuItemAdminDetailResponse createMenuItem(CreateMenuItemRequest request) {
         getActiveCategory(request.categoryId());
 
@@ -175,6 +182,7 @@ public class MenuServiceImpl implements MenuService {
 
     @Override
     @Transactional
+    @CacheEvict(value = "menu", allEntries = true)
     public MenuItemAdminDetailResponse updateMenuItem(Long id, UpdateMenuItemRequest request) {
         getActiveCategory(request.categoryId());
         MenuItem item = getActiveMenuItem(id);
@@ -204,6 +212,7 @@ public class MenuServiceImpl implements MenuService {
 
     @Override
     @Transactional
+    @CacheEvict(value = "menu", allEntries = true)
     public void deleteMenuItem(Long id) {
         MenuItem item = getActiveMenuItem(id);
         item.softDelete();
@@ -217,6 +226,7 @@ public class MenuServiceImpl implements MenuService {
 
     @Override
     @Transactional
+    @CacheEvict(value = "menu", allEntries = true)
     public MenuItemAdminDetailResponse upsertFixedComboConfig(Long comboItemId, UpsertFixedComboRequest request) {
         MenuItem combo = getActiveMenuItem(comboItemId);
         ensureComboKind(combo, ComboKind.FIXED);
@@ -240,6 +250,7 @@ public class MenuServiceImpl implements MenuService {
 
     @Override
     @Transactional
+    @CacheEvict(value = "menu", allEntries = true)
     public MenuItemAdminDetailResponse upsertPickComboConfig(Long comboItemId, UpsertPickComboRequest request) {
         MenuItem combo = getActiveMenuItem(comboItemId);
         ensureComboKind(combo, ComboKind.PICK);
@@ -288,6 +299,7 @@ public class MenuServiceImpl implements MenuService {
 
     @Override
     @Transactional
+    @CacheEvict(value = "menu", allEntries = true)
     public MenuCategoryDetailResponse createCategory(CreateMenuCategoryRequest request) {
         MenuCategory category = MenuCategory.builder()
                 .name(request.name().trim())
@@ -305,6 +317,7 @@ public class MenuServiceImpl implements MenuService {
 
     @Override
     @Transactional
+    @CacheEvict(value = "menu", allEntries = true)
     public MenuCategoryDetailResponse updateCategory(Long id, UpdateMenuCategoryRequest request) {
         MenuCategory category = getActiveCategory(id);
         category.updateDetails(
@@ -318,6 +331,7 @@ public class MenuServiceImpl implements MenuService {
 
     @Override
     @Transactional
+    @CacheEvict(value = "menu", allEntries = true)
     public void deleteCategory(Long id) {
         MenuCategory category = getActiveCategory(id);
         category.softDelete();
@@ -447,6 +461,7 @@ public class MenuServiceImpl implements MenuService {
 
     @Override
     @Transactional
+    @CacheEvict(value = "menu", allEntries = true)
     public List<RecipeItemResponse> upsertRecipe(Long menuItemId, UpsertRecipeRequest request) {
         getActiveMenuItem(menuItemId);
 
@@ -493,6 +508,7 @@ public class MenuServiceImpl implements MenuService {
 
     @Override
     @Transactional
+    @CacheEvict(value = "menu", allEntries = true)
     public void deleteRecipe(Long menuItemId) {
         getActiveMenuItem(menuItemId);
         menuItemIngredientRepository.deleteAllByMenuItemId(menuItemId);

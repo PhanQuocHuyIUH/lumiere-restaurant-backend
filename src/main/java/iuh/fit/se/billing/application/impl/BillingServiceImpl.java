@@ -8,7 +8,6 @@ import iuh.fit.se.billing.application.BillingService;
 import iuh.fit.se.billing.application.BillingWebhookResult;
 import iuh.fit.se.billing.application.WebhookProcessResult;
 import iuh.fit.se.billing.application.WebhookService;
-import iuh.fit.se.billing.domain.BillingIdempotencyKey;
 import iuh.fit.se.billing.domain.Payment;
 import iuh.fit.se.billing.domain.PaymentMethod;
 import iuh.fit.se.billing.domain.PaymentProvider;
@@ -19,7 +18,6 @@ import iuh.fit.se.billing.domain.TxnStatus;
 import iuh.fit.se.billing.domain.TxnType;
 import iuh.fit.se.billing.domain.PaymentWebhook;
 import iuh.fit.se.billing.domain.VnpayMessageMapper;
-import iuh.fit.se.billing.infrastructure.BillingIdempotencyKeyRepository;
 import iuh.fit.se.billing.infrastructure.PaymentRepository;
 import iuh.fit.se.billing.infrastructure.PaymentTransactionRepository;
 import iuh.fit.se.billing.infrastructure.PaymentWebhookRepository;
@@ -29,7 +27,6 @@ import iuh.fit.se.ordering.application.OrderingService;
 import iuh.fit.se.shared.event.PaymentFailedEvent;
 import iuh.fit.se.shared.event.PaymentSuccessEvent;
 import iuh.fit.se.shared.exception.DomainException;
-import iuh.fit.se.shared.exception.IdempotencyConflictException;
 import iuh.fit.se.shared.exception.ResourceNotFoundException;
 import iuh.fit.se.shared.security.JwtPrincipal;
 import iuh.fit.se.shared.util.IdempotencyUtil;
@@ -93,7 +90,7 @@ public class BillingServiceImpl implements BillingService {
     private final PaymentWebhookRepository paymentWebhookRepository;
     private final PaymentTransactionRepository paymentTransactionRepository;
     private final RefundRepository refundRepository;
-    private final BillingIdempotencyKeyRepository idempotencyKeyRepository;
+    private final PaymentIdempotencyService paymentIdempotencyService;
     private final OrderingService orderingService;
     private final WebhookService webhookService;
     private final ApplicationEventPublisher eventPublisher;
@@ -129,7 +126,7 @@ public class BillingServiceImpl implements BillingService {
             PaymentWebhookRepository paymentWebhookRepository,
             PaymentTransactionRepository paymentTransactionRepository,
             RefundRepository refundRepository,
-            BillingIdempotencyKeyRepository idempotencyKeyRepository,
+                PaymentIdempotencyService paymentIdempotencyService,
             OrderingService orderingService,
             WebhookService webhookService,
             ApplicationEventPublisher eventPublisher,
@@ -139,7 +136,7 @@ public class BillingServiceImpl implements BillingService {
         this.paymentWebhookRepository = paymentWebhookRepository;
         this.paymentTransactionRepository = paymentTransactionRepository;
         this.refundRepository = refundRepository;
-        this.idempotencyKeyRepository = idempotencyKeyRepository;
+        this.paymentIdempotencyService = paymentIdempotencyService;
         this.orderingService = orderingService;
         this.webhookService = webhookService;
         this.eventPublisher = eventPublisher;
@@ -150,8 +147,11 @@ public class BillingServiceImpl implements BillingService {
     @Override
     public PaymentResponse createPayment(CreatePaymentRequest request, String idempotencyKey) {
         String normalizedKey = IdempotencyUtil.normalizeKey(idempotencyKey);
-        return executeIdempotent(normalizedKey, OP_CREATE_PAYMENT, HttpStatus.CREATED.value(),
-                () -> createPaymentInternal(request, normalizedKey));
+        return paymentIdempotencyService.executeIdempotent(
+            normalizedKey,
+            OP_CREATE_PAYMENT,
+            () -> createPaymentInternal(request)
+        );
     }
 
     @Override
@@ -256,8 +256,11 @@ public class BillingServiceImpl implements BillingService {
     @Override
     public PaymentResponse createRefund(Long paymentId, RefundRequest request, String idempotencyKey) {
         String normalizedKey = IdempotencyUtil.normalizeKey(idempotencyKey);
-        return executeIdempotent(normalizedKey, OP_CREATE_REFUND, HttpStatus.OK.value(),
-                () -> createRefundInternal(paymentId, request, normalizedKey));
+        return paymentIdempotencyService.executeIdempotent(
+            normalizedKey,
+            OP_CREATE_REFUND,
+            () -> createRefundInternal(paymentId, request)
+        );
     }
 
     @Override
@@ -268,7 +271,7 @@ public class BillingServiceImpl implements BillingService {
         return PaymentResponse.from(payment);
     }
 
-    private PaymentResponse createPaymentInternal(CreatePaymentRequest request, String normalizedKey) {
+    private PaymentResponse createPaymentInternal(CreatePaymentRequest request) {
         validatePaymentMethodProvider(request.paymentMethod(), request.provider());
 
         OrderResponse order = orderingService.getOrderDetail(request.orderId());
@@ -284,7 +287,6 @@ public class BillingServiceImpl implements BillingService {
                 order.totalAmount(),
                 request.paymentMethod(),
                 request.provider(),
-                normalizedKey,
                 cashierId
         );
         payment = paymentRepository.save(payment);
@@ -344,7 +346,7 @@ public class BillingServiceImpl implements BillingService {
         return PaymentResponse.from(payment);
     }
 
-    private PaymentResponse createRefundInternal(Long paymentId, RefundRequest request, String normalizedKey) {
+    private PaymentResponse createRefundInternal(Long paymentId, RefundRequest request) {
         Payment payment = paymentRepository.findById(paymentId)
                 .orElseThrow(() -> new ResourceNotFoundException("Payment", paymentId));
 
@@ -361,7 +363,6 @@ public class BillingServiceImpl implements BillingService {
                 payment.getId(),
                 request.amount(),
                 normalizeOptionalText(request.reason()),
-                normalizedKey,
                 staffId
         );
 
@@ -675,45 +676,6 @@ public class BillingServiceImpl implements BillingService {
             Map<String, Object> payload = Map.of("error", firstNonBlank(ex.getMessage(), "Gateway call failed"));
             return new GatewayHttpResponse(HttpStatus.BAD_GATEWAY.value(), payload, durationMs);
         }
-    }
-
-    private PaymentResponse executeIdempotent(
-            String normalizedKey,
-            String operation,
-            int responseStatus,
-            Supplier<PaymentResponse> action
-    ) {
-        Optional<BillingIdempotencyKey> existingKeyOpt = idempotencyKeyRepository.findByModuleAndOperationAndIdemKey(
-                IDEM_MODULE,
-                operation,
-                normalizedKey
-        );
-        if (existingKeyOpt.isPresent()) {
-            BillingIdempotencyKey existing = existingKeyOpt.get();
-            if (existing.isExpired(Instant.now())) {
-                idempotencyKeyRepository.delete(existing);
-                idempotencyKeyRepository.flush();
-            } else if (existing.hasResponseBody()) {
-                return IdempotencyUtil.fromJsonMap(objectMapper, existing.getResponseBody(), PaymentResponse.class);
-            } else {
-                throw new IdempotencyConflictException(normalizedKey);
-            }
-        }
-
-        BillingIdempotencyKey pendingKey = BillingIdempotencyKey.reserve(
-                IDEM_MODULE,
-                operation,
-                normalizedKey,
-                IdempotencyUtil.defaultExpiry()
-        );
-        idempotencyKeyRepository.save(pendingKey);
-
-        PaymentResponse response = action.get();
-
-        pendingKey.markCompleted(responseStatus, IdempotencyUtil.toJsonMap(objectMapper, response));
-        idempotencyKeyRepository.save(pendingKey);
-
-        return response;
     }
 
     private void ensureOrderCanCreatePayment(OrderResponse order) {
