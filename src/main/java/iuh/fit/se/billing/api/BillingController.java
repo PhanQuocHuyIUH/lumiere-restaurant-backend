@@ -4,6 +4,7 @@ import iuh.fit.se.billing.api.dto.CreatePaymentRequest;
 import iuh.fit.se.billing.api.dto.PaymentResponse;
 import iuh.fit.se.billing.api.dto.RefundRequest;
 import iuh.fit.se.billing.application.BillingService;
+import iuh.fit.se.billing.api.dto.InvoiceResponse;
 import iuh.fit.se.shared.response.ApiResponse;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
@@ -39,6 +40,12 @@ public class BillingController {
     @GetMapping("/orders/{orderId}/status")
     public ResponseEntity<ApiResponse<PaymentResponse>> getPaymentStatusByOrderId(@PathVariable("orderId") Long orderId) {
         PaymentResponse response = billingService.getPaymentStatusByOrderId(orderId);
+        return ResponseEntity.ok(ApiResponse.ok(response));
+    }
+
+    @GetMapping("/orders/{orderId}/invoice")
+    public ResponseEntity<ApiResponse<InvoiceResponse>> getInvoiceForOrder(@PathVariable("orderId") Long orderId) {
+        InvoiceResponse response = billingService.getInvoiceForOrder(orderId);
         return ResponseEntity.ok(ApiResponse.ok(response));
     }
 

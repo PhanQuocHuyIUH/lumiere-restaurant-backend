@@ -1,6 +1,7 @@
 package iuh.fit.se.billing.application;
 
 import iuh.fit.se.billing.api.dto.CreatePaymentRequest;
+import iuh.fit.se.billing.api.dto.InvoiceResponse;
 import iuh.fit.se.billing.api.dto.PaymentResponse;
 import iuh.fit.se.billing.api.dto.RefundRequest;
 import iuh.fit.se.billing.domain.PaymentProvider;
@@ -20,4 +21,6 @@ public interface BillingService {
     PaymentResponse createRefund(Long paymentId, RefundRequest request, String idempotencyKey);
 
     PaymentResponse getPaymentStatusByOrderId(Long orderId);
+
+    InvoiceResponse getInvoiceForOrder(Long orderId);
 }

@@ -6,4 +6,6 @@ import iuh.fit.se.identity.api.dto.LoginResponse;
 public interface AuthService {
 
     LoginResponse login(LoginRequest request);
+
+    void logout(String token);
 }

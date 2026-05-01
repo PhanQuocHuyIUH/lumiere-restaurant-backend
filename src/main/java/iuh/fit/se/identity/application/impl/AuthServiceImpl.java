@@ -13,12 +13,16 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.authentication.DisabledException;
 import org.springframework.security.crypto.password.PasswordEncoder;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @Transactional(readOnly = true)
 public class AuthServiceImpl implements AuthService {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(AuthServiceImpl.class);
 
     private final StaffRepository staffRepository;
     private final PasswordEncoder passwordEncoder;
@@ -72,5 +76,16 @@ public class AuthServiceImpl implements AuthService {
 
     private String normalizeUsername(String username) {
         return username.trim().toLowerCase();
+    }
+
+    @Override
+    public void logout(String token) {
+        // Stateless JWT: no server-side revocation in this phase.
+        // Keep a log for audit; token may be null if called anonymously.
+        if (token == null || token.isBlank()) {
+            LOGGER.debug("Logout called without token");
+        } else {
+            LOGGER.info("Logout requested - token length {}", token.length());
+        }
     }
 }

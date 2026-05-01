@@ -23,6 +23,8 @@ import iuh.fit.se.billing.infrastructure.PaymentTransactionRepository;
 import iuh.fit.se.billing.infrastructure.PaymentWebhookRepository;
 import iuh.fit.se.billing.infrastructure.RefundRepository;
 import iuh.fit.se.ordering.api.dto.OrderResponse;
+import iuh.fit.se.billing.api.dto.InvoiceResponse;
+import iuh.fit.se.billing.api.dto.InvoiceItem;
 import iuh.fit.se.ordering.application.OrderingService;
 import iuh.fit.se.shared.event.PaymentFailedEvent;
 import iuh.fit.se.shared.event.PaymentSuccessEvent;
@@ -87,6 +89,7 @@ public class BillingServiceImpl implements BillingService {
     );
 
     private final PaymentRepository paymentRepository;
+    private final iuh.fit.se.menu.application.MenuService menuService;
     private final PaymentWebhookRepository paymentWebhookRepository;
     private final PaymentTransactionRepository paymentTransactionRepository;
     private final RefundRepository refundRepository;
@@ -123,6 +126,7 @@ public class BillingServiceImpl implements BillingService {
 
     public BillingServiceImpl(
             PaymentRepository paymentRepository,
+            iuh.fit.se.menu.application.MenuService menuService,
             PaymentWebhookRepository paymentWebhookRepository,
             PaymentTransactionRepository paymentTransactionRepository,
             RefundRepository refundRepository,
@@ -133,6 +137,7 @@ public class BillingServiceImpl implements BillingService {
             ObjectMapper objectMapper
     ) {
         this.paymentRepository = paymentRepository;
+        this.menuService = menuService;
         this.paymentWebhookRepository = paymentWebhookRepository;
         this.paymentTransactionRepository = paymentTransactionRepository;
         this.refundRepository = refundRepository;
@@ -143,6 +148,43 @@ public class BillingServiceImpl implements BillingService {
         this.objectMapper = objectMapper;
         this.restClient = RestClient.builder().build();
     }
+
+        @Override
+        public InvoiceResponse getInvoiceForOrder(Long orderId) {
+        OrderResponse order = orderingService.getOrderDetail(orderId);
+
+        var paymentOpt = paymentRepository.findTopByOrderIdAndStatusOrderByCreatedAtDesc(orderId, PaymentStatus.SUCCESS)
+            .or(() -> paymentRepository.findTopByOrderIdOrderByCreatedAtDesc(orderId));
+
+        var items = order.items().stream().map(it -> {
+            String name = "";
+            try {
+                var menuItem = menuService.getItem(it.menuItemId());
+                if (menuItem != null) name = menuItem.name();
+            } catch (Exception ex) {
+                // fallback to empty name
+            }
+
+            return new InvoiceItem(name, it.quantity(), it.unitPrice(), it.subtotal());
+        }).toList();
+
+        java.math.BigDecimal subtotal = order.items().stream()
+            .map(r -> r.subtotal())
+            .reduce(java.math.BigDecimal.ZERO, java.math.BigDecimal::add);
+
+        java.math.BigDecimal tax = java.math.BigDecimal.ZERO;
+        java.math.BigDecimal discount = java.math.BigDecimal.ZERO;
+
+        java.math.BigDecimal total = order.totalAmount() != null ? order.totalAmount() : subtotal;
+
+        String paymentMethod = paymentOpt.map(p -> p.getPaymentMethod() == null ? "" : p.getPaymentMethod().name()).orElse("");
+        java.time.Instant paymentTime = paymentOpt.map(p -> p.getPaidAt()).orElse(order.paidAt());
+        Long cashierId = paymentOpt.map(p -> p.getCashierId()).orElse(order.confirmedById());
+
+        String invoiceNumber = String.format("INV-%d-%d", orderId, System.currentTimeMillis());
+
+        return new InvoiceResponse(orderId, invoiceNumber, items, subtotal, tax, discount, total, paymentMethod, paymentTime, cashierId);
+        }
 
     @Override
     public PaymentResponse createPayment(CreatePaymentRequest request, String idempotencyKey) {
