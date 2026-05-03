@@ -6,9 +6,12 @@ import java.time.Instant;
 public record ShiftResponse(
         Long id,
         Long cashierId,
+        Long openedBy,
+        Long closedBy,
         Instant openedAt,
         Instant closedAt,
         BigDecimal openingTotal,
         BigDecimal closingTotal,
-        String notes
+        String openingNotes,
+        String closingNotes
 ) {}

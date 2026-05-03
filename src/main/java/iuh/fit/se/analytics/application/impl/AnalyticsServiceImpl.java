@@ -2,7 +2,11 @@ package iuh.fit.se.analytics.application.impl;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import iuh.fit.se.analytics.api.GroupBy;
 import iuh.fit.se.analytics.api.dto.AnalyticsSummaryResponse;
+import iuh.fit.se.analytics.api.dto.RevenueDetailResponse;
+import iuh.fit.se.analytics.api.dto.RevenuePeriodEntry;
+import iuh.fit.se.analytics.api.dto.TopMenuItemEntry;
 import iuh.fit.se.analytics.application.AnalyticsService;
 import iuh.fit.se.analytics.domain.OrderEvent;
 import iuh.fit.se.analytics.infrastructure.OrderEventRepository;
@@ -21,7 +25,10 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
+import java.time.temporal.IsoFields;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
@@ -92,6 +99,85 @@ public class AnalyticsServiceImpl implements AnalyticsService {
                 toDate,
                 Instant.now()
         );
+    }
+
+    @Override
+    public RevenueDetailResponse getRevenueDetail(LocalDate fromDate, LocalDate toDate, GroupBy groupBy) {
+        validateDateRange(fromDate, toDate);
+
+        GroupBy effectiveGroupBy = groupBy == null ? GroupBy.DAY : groupBy;
+        Instant fromTime = fromDate == null ? null : fromDate.atStartOfDay(DATABASE_ZONE).toInstant();
+        Instant toTime = toDate == null ? null : toDate.plusDays(1).atStartOfDay(DATABASE_ZONE).toInstant();
+
+        String granularity = toPostgresGranularity(effectiveGroupBy);
+
+        // --- Period breakdown ---
+        List<OrderEventRepository.RevenuePeriodProjection> periodRows =
+                orderEventRepository.findRevenueByPeriod(granularity, fromTime, toTime);
+
+        List<RevenuePeriodEntry> periods = periodRows.stream()
+                .map(row -> new RevenuePeriodEntry(
+                        formatPeriodLabel(row.getPeriod(), effectiveGroupBy),
+                        normalizeAmount(row.getRevenue()),
+                        normalizeCount(row.getOrderCount())
+                ))
+                .toList();
+
+        BigDecimal totalRevenue = periods.stream()
+                .map(RevenuePeriodEntry::revenue)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        Long totalOrders = periods.stream()
+                .mapToLong(RevenuePeriodEntry::orderCount)
+                .sum();
+
+        // --- Top 10 best-seller ---
+        List<OrderEventRepository.TopMenuItemProjection> topRows =
+                orderEventRepository.findTop10MenuItems(fromTime, toTime);
+
+        List<TopMenuItemEntry> topItems = topRows.stream()
+                .map(row -> new TopMenuItemEntry(
+                        row.getMenuItemId(),
+                        row.getMenuItemName(),
+                        normalizeCount(row.getTotalQuantity()),
+                        normalizeCount(row.getOrderCount()),
+                        normalizeAmount(row.getTotalRevenue())
+                ))
+                .toList();
+
+        return new RevenueDetailResponse(
+                fromDate,
+                toDate,
+                effectiveGroupBy.name(),
+                totalRevenue,
+                totalOrders,
+                periods,
+                topItems,
+                Instant.now()
+        );
+    }
+
+    private String toPostgresGranularity(GroupBy groupBy) {
+        return switch (groupBy) {
+            case DAY   -> "day";
+            case WEEK  -> "week";
+            case MONTH -> "month";
+            case YEAR  -> "year";
+        };
+    }
+
+    private String formatPeriodLabel(Instant period, GroupBy groupBy) {
+        if (period == null) {
+            return "";
+        }
+        LocalDate date = period.atZone(DATABASE_ZONE).toLocalDate();
+        return switch (groupBy) {
+            case DAY   -> date.format(DateTimeFormatter.ISO_LOCAL_DATE);          // 2025-04-30
+            case WEEK  -> date.getYear() + "-W"
+                    + String.format("%02d", date.get(IsoFields.WEEK_OF_WEEK_BASED_YEAR)); // 2025-W17
+            case MONTH -> date.format(DateTimeFormatter.ofPattern("yyyy-MM"));    // 2025-04
+            case YEAR  -> String.valueOf(date.getYear());                          // 2025
+        };
     }
 
     private void validateDateRange(LocalDate fromDate, LocalDate toDate) {

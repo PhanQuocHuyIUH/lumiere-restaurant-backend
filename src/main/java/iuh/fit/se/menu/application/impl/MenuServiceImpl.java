@@ -6,6 +6,7 @@ import iuh.fit.se.menu.api.dto.CustomerMenuCategoryResponse;
 import iuh.fit.se.menu.api.dto.CustomerMenuItemResponse;
 import iuh.fit.se.menu.api.dto.MenuCategoryResponse;
 import iuh.fit.se.menu.api.dto.MenuItemResponse;
+import iuh.fit.se.menu.api.dto.admin.AdminMenuCategoryListItemResponse;
 import iuh.fit.se.menu.api.dto.admin.CreateMenuCategoryRequest;
 import iuh.fit.se.menu.api.dto.admin.CreateMenuItemRequest;
 import iuh.fit.se.menu.api.dto.admin.MenuCategoryDetailResponse;
@@ -129,6 +130,29 @@ public class MenuServiceImpl implements MenuService {
                         category,
                         itemsByCategoryId.getOrDefault(category.getId(), List.of())
                 ))
+                .toList();
+    }
+
+    @Override
+    public List<AdminMenuCategoryListItemResponse> getAllCategoriesForAdmin() {
+        List<MenuCategory> categories =
+                menuCategoryRepository.findAllByDeletedAtIsNullOrderByDisplayOrderAscIdAsc();
+        return categories.stream()
+                .map(category -> AdminMenuCategoryListItemResponse.from(
+                        category,
+                        menuItemRepository.countByCategoryIdAndDeletedAtIsNull(category.getId())
+                ))
+                .toList();
+    }
+
+    @Override
+    public List<MenuItemResponse> getAvailableItemsByCategory(Long categoryId) {
+        getActiveCategory(categoryId); // throws ResourceNotFoundException if not found
+        return menuItemRepository
+                .findAllByCategoryIdAndDeletedAtIsNullOrderByIdAsc(categoryId)
+                .stream()
+                .filter(MenuItem::isAvailable)
+                .map(MenuItemResponse::from)
                 .toList();
     }
 

@@ -15,6 +15,9 @@ public class CashierShift {
     @Column(name = "cashier_id", nullable = false)
     private Long cashierId;
 
+    @Column(name = "opened_by")
+    private Long openedBy;
+
     @Column(name = "opened_at", nullable = false)
     private Instant openedAt = Instant.now();
 
@@ -29,6 +32,12 @@ public class CashierShift {
 
     private String notes;
 
+    @Column(name = "closing_notes")
+    private String closingNotes;
+
+    @Column(name = "closed_by")
+    private Long closedBy;
+
     @Column(name = "created_at")
     private Instant createdAt = Instant.now();
 
@@ -40,26 +49,32 @@ public class CashierShift {
 
     public CashierShift() {}
 
-    public CashierShift(Long cashierId, BigDecimal openingTotal, String notes) {
+    public CashierShift(Long cashierId, BigDecimal openingTotal, String notes, Long openedBy) {
         this.cashierId = cashierId;
         this.openingTotal = openingTotal;
         this.notes = notes;
+        this.openedBy = openedBy;
     }
 
     public Long getId() { return id; }
     public Long getCashierId() { return cashierId; }
+    public Long getOpenedBy() { return openedBy; }
     public Instant getOpenedAt() { return openedAt; }
     public Instant getClosedAt() { return closedAt; }
     public BigDecimal getOpeningTotal() { return openingTotal; }
     public BigDecimal getClosingTotal() { return closingTotal; }
     public String getNotes() { return notes; }
+    public String getClosingNotes() { return closingNotes; }
+    public Long getClosedBy() { return closedBy; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
     public Instant getDeletedAt() { return deletedAt; }
 
-    public void close(BigDecimal closingTotal) {
+    public void close(BigDecimal closingTotal, Instant closedAt, Long closedBy, String closingNotes) {
         this.closingTotal = closingTotal;
-        this.closedAt = Instant.now();
+        this.closedAt = closedAt;
+        this.closedBy = closedBy;
+        this.closingNotes = closingNotes;
     }
 
     @PreUpdate

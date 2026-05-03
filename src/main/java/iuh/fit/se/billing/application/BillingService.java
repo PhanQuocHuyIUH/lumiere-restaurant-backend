@@ -4,6 +4,7 @@ import iuh.fit.se.billing.api.dto.CreatePaymentRequest;
 import iuh.fit.se.billing.api.dto.InvoiceResponse;
 import iuh.fit.se.billing.api.dto.PaymentResponse;
 import iuh.fit.se.billing.api.dto.RefundRequest;
+import iuh.fit.se.billing.application.dto.ShiftPaymentSummary;
 import iuh.fit.se.billing.domain.PaymentProvider;
 import java.util.Map;
 
@@ -23,4 +24,6 @@ public interface BillingService {
     PaymentResponse getPaymentStatusByOrderId(Long orderId);
 
     InvoiceResponse getInvoiceForOrder(Long orderId);
+
+    ShiftPaymentSummary getShiftPaymentSummary(Long shiftId);
 }

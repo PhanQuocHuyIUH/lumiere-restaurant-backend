@@ -1,9 +1,11 @@
 package iuh.fit.se.billing.infrastructure;
 
 import iuh.fit.se.billing.domain.Payment;
+import iuh.fit.se.billing.domain.PaymentMethod;
 import iuh.fit.se.billing.domain.PaymentProvider;
 import iuh.fit.se.billing.domain.PaymentStatus;
 import java.time.Instant;
+import java.util.Collection;
 import java.util.Optional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -37,4 +39,32 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
             PaymentProvider provider,
             String providerTransactionId
     );
+
+        @Query("""
+                select coalesce(sum(p.amount), 0)
+                from Payment p
+                where p.shiftId = :shiftId
+                    and p.status = :status
+                    and p.paymentMethod = :paymentMethod
+                """)
+        java.math.BigDecimal sumAmountByShiftIdAndStatusAndPaymentMethod(
+                        @Param("shiftId") Long shiftId,
+                        @Param("status") PaymentStatus status,
+                        @Param("paymentMethod") PaymentMethod paymentMethod
+        );
+
+        @Query("""
+                select coalesce(sum(p.amount), 0)
+                from Payment p
+                where p.shiftId = :shiftId
+                    and p.status = :status
+                    and p.paymentMethod in :paymentMethods
+                """)
+        java.math.BigDecimal sumAmountByShiftIdAndStatusAndPaymentMethodIn(
+                        @Param("shiftId") Long shiftId,
+                        @Param("status") PaymentStatus status,
+                        @Param("paymentMethods") Collection<PaymentMethod> paymentMethods
+        );
+
+        long countByShiftIdAndStatus(Long shiftId, PaymentStatus status);
 }

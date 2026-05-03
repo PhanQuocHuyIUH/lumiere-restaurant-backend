@@ -38,6 +38,9 @@ public class Payment {
     @Column(name = "order_id", nullable = false)
     private Long orderId;
 
+    @Column(name = "shift_id")
+    private Long shiftId;
+
     @Column(name = "amount", nullable = false)
     private BigDecimal amount;
 
@@ -118,6 +121,7 @@ public class Payment {
 
     public static Payment createPending(
             Long orderId,
+            Long shiftId,
             BigDecimal amount,
             PaymentMethod paymentMethod,
             PaymentProvider provider,
@@ -125,6 +129,7 @@ public class Payment {
     ) {
         return Payment.builder()
                 .orderId(orderId)
+            .shiftId(shiftId)
                 .amount(amount)
                 .paymentMethod(paymentMethod)
                 .provider(provider)

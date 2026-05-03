@@ -27,26 +27,70 @@ public interface OrderEventRepository extends JpaRepository<OrderEvent, Long> {
 
     @Query(value = """
             SELECT
-                COUNT(DISTINCT CASE WHEN oe.event_type = 'ORDER_CREATED' THEN oe.order_id END) AS totalOrders,
-                COUNT(CASE WHEN oe.event_type = 'ORDER_CONFIRMED' THEN 1 END) AS confirmedOrders,
-                COUNT(CASE WHEN oe.event_type = 'ORDER_CANCELLED' THEN 1 END) AS cancelledOrders,
-                COALESCE(
-                    SUM(
-                        CASE
-                            WHEN oe.event_type = 'PAYMENT_SUCCESS'
-                                THEN COALESCE(NULLIF(oe.metadata ->> 'amount', '')::NUMERIC, 0)
-                            ELSE 0
-                        END
-                    ),
-                    0
-                ) AS totalRevenue,
-                COUNT(CASE WHEN oe.event_type = 'PAYMENT_SUCCESS' THEN 1 END) AS successfulPayments,
-                COUNT(CASE WHEN oe.event_type = 'PAYMENT_FAILED' THEN 1 END) AS failedPayments
-            FROM analytics.order_events oe
-            WHERE (:fromTime IS NULL OR oe.created_at >= :fromTime)
-              AND (:toTime IS NULL OR oe.created_at < :toTime)
+                COUNT(DISTINCT o.id)                                                                AS totalOrders,
+                COUNT(DISTINCT CASE WHEN o.confirmed_at IS NOT NULL THEN o.id END)                 AS confirmedOrders,
+                COUNT(DISTINCT CASE WHEN o.status = 'CANCELLED' THEN o.id END)                     AS cancelledOrders,
+                COALESCE(SUM(CASE WHEN p.status = 'SUCCESS' THEN p.amount END), 0)                 AS totalRevenue,
+                COUNT(DISTINCT CASE WHEN p.status = 'SUCCESS' THEN p.id END)                       AS successfulPayments,
+                COUNT(DISTINCT CASE WHEN p.status = 'FAILED'  THEN p.id END)                       AS failedPayments
+            FROM ordering.orders o
+            LEFT JOIN payment.payments p ON p.order_id = o.id
+            WHERE (CAST(:fromTime AS timestamptz) IS NULL OR o.created_at >= CAST(:fromTime AS timestamptz))
+              AND (CAST(:toTime AS timestamptz) IS NULL OR o.created_at < CAST(:toTime AS timestamptz))
             """, nativeQuery = true)
     AnalyticsSummaryProjection summarize(@Param("fromTime") Instant fromTime, @Param("toTime") Instant toTime);
+
+    /**
+     * Aggregates revenue and order counts grouped by a PostgreSQL DATE_TRUNC granularity
+     * ('day', 'week', 'month', 'year'). Source: payment.payments WHERE status = 'SUCCESS'.
+     */
+    @Query(value = """
+            SELECT
+                DATE_TRUNC(:granularity, p.paid_at AT TIME ZONE 'UTC') AS period,
+                COALESCE(SUM(p.amount), 0)                              AS revenue,
+                COUNT(p.id)                                             AS order_count
+            FROM payment.payments p
+            WHERE p.status = 'SUCCESS'
+              AND (CAST(:fromTime AS timestamptz) IS NULL OR p.paid_at >= CAST(:fromTime AS timestamptz))
+              AND (CAST(:toTime AS timestamptz) IS NULL OR p.paid_at < CAST(:toTime AS timestamptz))
+            GROUP BY period
+            ORDER BY period
+            """, nativeQuery = true)
+    java.util.List<RevenuePeriodProjection> findRevenueByPeriod(
+            @Param("granularity") String granularity,
+            @Param("fromTime") Instant fromTime,
+            @Param("toTime") Instant toTime
+    );
+
+    /**
+     * Top 10 best-selling menu items by total quantity within PAID orders.
+     * Cross-schema JOIN: ordering.orders -> ordering.order_revisions
+     *   -> ordering.order_items -> menu.menu_items.
+     */
+    @Query(value = """
+            SELECT
+                oi.menu_item_id                 AS menu_item_id,
+                mi.name                         AS menu_item_name,
+                COALESCE(SUM(oi.quantity), 0)   AS total_quantity,
+                COUNT(DISTINCT o.id)            AS order_count,
+                COALESCE(SUM(oi.subtotal), 0)   AS total_revenue
+            FROM ordering.orders o
+            JOIN ordering.order_revisions orv ON orv.order_id = o.id
+            JOIN ordering.order_items     oi  ON oi.revision_id = orv.id
+            JOIN menu.menu_items           mi  ON mi.id = oi.menu_item_id
+            WHERE o.status = 'PAID'
+              AND oi.is_billable = true
+              AND oi.menu_item_id IS NOT NULL
+              AND (CAST(:fromTime AS timestamptz) IS NULL OR o.paid_at >= CAST(:fromTime AS timestamptz))
+              AND (CAST(:toTime AS timestamptz) IS NULL OR o.paid_at < CAST(:toTime AS timestamptz))
+            GROUP BY oi.menu_item_id, mi.name
+            ORDER BY total_quantity DESC
+            LIMIT 10
+            """, nativeQuery = true)
+    java.util.List<TopMenuItemProjection> findTop10MenuItems(
+            @Param("fromTime") Instant fromTime,
+            @Param("toTime") Instant toTime
+    );
 
     interface AnalyticsSummaryProjection {
         Long getTotalOrders();
@@ -60,5 +104,25 @@ public interface OrderEventRepository extends JpaRepository<OrderEvent, Long> {
         Long getSuccessfulPayments();
 
         Long getFailedPayments();
+    }
+
+    interface RevenuePeriodProjection {
+        Instant getPeriod();
+
+        BigDecimal getRevenue();
+
+        Long getOrderCount();
+    }
+
+    interface TopMenuItemProjection {
+        Long getMenuItemId();
+
+        String getMenuItemName();
+
+        Long getTotalQuantity();
+
+        Long getOrderCount();
+
+        BigDecimal getTotalRevenue();
     }
 }

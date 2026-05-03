@@ -1,11 +1,13 @@
 package iuh.fit.se.menu.api;
 
+import iuh.fit.se.menu.api.dto.admin.AdminMenuCategoryListItemResponse;
 import iuh.fit.se.menu.api.dto.admin.CreateMenuCategoryRequest;
 import iuh.fit.se.menu.api.dto.admin.MenuCategoryDetailResponse;
 import iuh.fit.se.menu.api.dto.admin.UpdateMenuCategoryRequest;
 import iuh.fit.se.menu.application.MenuService;
 import iuh.fit.se.shared.response.ApiResponse;
 import jakarta.validation.Valid;
+import java.util.List;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -27,6 +29,11 @@ public class AdminMenuCategoryController {
 
     public AdminMenuCategoryController(MenuService menuService) {
         this.menuService = menuService;
+    }
+
+    @GetMapping
+    public ResponseEntity<ApiResponse<List<AdminMenuCategoryListItemResponse>>> getAll() {
+        return ResponseEntity.ok(ApiResponse.ok(menuService.getAllCategoriesForAdmin()));
     }
 
     @PostMapping

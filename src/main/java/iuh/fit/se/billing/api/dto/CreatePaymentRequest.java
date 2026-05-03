@@ -9,6 +9,9 @@ public record CreatePaymentRequest(
         @NotNull(message = "orderId is required")
         Long orderId,
 
+        @NotNull(message = "shiftId is required")
+        Long shiftId,
+
         @NotNull(message = "paymentMethod is required")
         PaymentMethod paymentMethod,
 

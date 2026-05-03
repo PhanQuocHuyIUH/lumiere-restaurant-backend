@@ -2,6 +2,8 @@ package iuh.fit.se.menu.application;
 
 import iuh.fit.se.menu.api.dto.CustomerMenuCategoryResponse;
 import iuh.fit.se.menu.api.dto.MenuCategoryResponse;
+import iuh.fit.se.menu.api.dto.MenuItemResponse;
+import iuh.fit.se.menu.api.dto.admin.AdminMenuCategoryListItemResponse;
 import iuh.fit.se.menu.api.dto.admin.CreateMenuCategoryRequest;
 import iuh.fit.se.menu.api.dto.admin.CreateMenuItemRequest;
 import iuh.fit.se.menu.api.dto.admin.MenuCategoryDetailResponse;
@@ -20,6 +22,10 @@ public interface MenuService {
     List<MenuCategoryResponse> getMenu();
 
     List<CustomerMenuCategoryResponse> getCustomerMenu();
+
+    List<AdminMenuCategoryListItemResponse> getAllCategoriesForAdmin();
+
+    List<MenuItemResponse> getAvailableItemsByCategory(Long categoryId);
 
     MenuItemDTO getItem(Long id);
 

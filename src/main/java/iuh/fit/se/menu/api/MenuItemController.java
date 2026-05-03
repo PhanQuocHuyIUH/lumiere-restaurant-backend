@@ -31,6 +31,19 @@ public class MenuItemController {
         return ResponseEntity.ok(ApiResponse.ok(menuService.getMenu()));
     }
 
+    /**
+     * GET /menu/items?categoryId={id}
+     * Returns available menu items. If categoryId is provided, filters by category.
+     * Accessible by WAITER and MANAGER.
+     */
+    @GetMapping("/items")
+    public ResponseEntity<ApiResponse<List<MenuItemResponse>>> getItems(
+            @RequestParam(value = "categoryId", required = true) Long categoryId
+    ) {
+        List<MenuItemResponse> items = menuService.getAvailableItemsByCategory(categoryId);
+        return ResponseEntity.ok(ApiResponse.ok(items));
+    }
+
     @GetMapping("/items/{id}")
     public ResponseEntity<ApiResponse<MenuItemResponse>> getItemById(@PathVariable("id") Long id) {
         MenuItemDTO item = menuService.getItem(id);

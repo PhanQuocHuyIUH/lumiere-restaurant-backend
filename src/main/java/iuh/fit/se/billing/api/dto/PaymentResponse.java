@@ -10,6 +10,7 @@ import java.time.Instant;
 public record PaymentResponse(
         Long paymentId,
         Long orderId,
+    Long shiftId,
         BigDecimal amount,
         PaymentMethod paymentMethod,
         PaymentProvider provider,
@@ -30,6 +31,7 @@ public record PaymentResponse(
         return new PaymentResponse(
                 payment.getId(),
                 payment.getOrderId(),
+            payment.getShiftId(),
                 payment.getAmount(),
                 payment.getPaymentMethod(),
                 payment.getProvider(),

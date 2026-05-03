@@ -6,6 +6,7 @@ import iuh.fit.se.billing.api.dto.PaymentResponse;
 import iuh.fit.se.billing.api.dto.RefundRequest;
 import iuh.fit.se.billing.application.BillingService;
 import iuh.fit.se.billing.application.BillingWebhookResult;
+import iuh.fit.se.billing.application.dto.ShiftPaymentSummary;
 import iuh.fit.se.billing.application.WebhookProcessResult;
 import iuh.fit.se.billing.application.WebhookService;
 import iuh.fit.se.billing.domain.Payment;
@@ -32,6 +33,7 @@ import iuh.fit.se.shared.exception.DomainException;
 import iuh.fit.se.shared.exception.ResourceNotFoundException;
 import iuh.fit.se.shared.security.JwtPrincipal;
 import iuh.fit.se.shared.util.IdempotencyUtil;
+import iuh.fit.se.shift.infrastructure.CashierShiftRepository;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.net.URLEncoder;
@@ -47,7 +49,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
-import java.util.function.Supplier;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import org.springframework.beans.factory.annotation.Value;
@@ -67,7 +68,6 @@ import org.springframework.web.client.RestClient;
 @Transactional
 public class BillingServiceImpl implements BillingService {
 
-    private static final String IDEM_MODULE = "billing";
     private static final String OP_CREATE_PAYMENT = "CREATE_PAYMENT";
     private static final String OP_CREATE_REFUND = "CREATE_REFUND";
     private static final ZoneId VIETNAM_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
@@ -96,6 +96,7 @@ public class BillingServiceImpl implements BillingService {
     private final PaymentIdempotencyService paymentIdempotencyService;
     private final OrderingService orderingService;
     private final WebhookService webhookService;
+    private final CashierShiftRepository cashierShiftRepository;
     private final ApplicationEventPublisher eventPublisher;
     private final ObjectMapper objectMapper;
     private final RestClient restClient;
@@ -133,6 +134,7 @@ public class BillingServiceImpl implements BillingService {
                 PaymentIdempotencyService paymentIdempotencyService,
             OrderingService orderingService,
             WebhookService webhookService,
+            CashierShiftRepository cashierShiftRepository,
             ApplicationEventPublisher eventPublisher,
             ObjectMapper objectMapper
     ) {
@@ -144,6 +146,7 @@ public class BillingServiceImpl implements BillingService {
         this.paymentIdempotencyService = paymentIdempotencyService;
         this.orderingService = orderingService;
         this.webhookService = webhookService;
+        this.cashierShiftRepository = cashierShiftRepository;
         this.eventPublisher = eventPublisher;
         this.objectMapper = objectMapper;
         this.restClient = RestClient.builder().build();
@@ -313,8 +316,27 @@ public class BillingServiceImpl implements BillingService {
         return PaymentResponse.from(payment);
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public ShiftPaymentSummary getShiftPaymentSummary(Long shiftId) {
+        BigDecimal cashRevenue = paymentRepository.sumAmountByShiftIdAndStatusAndPaymentMethod(
+                shiftId,
+                PaymentStatus.SUCCESS,
+                PaymentMethod.CASH
+        );
+        BigDecimal transferRevenue = paymentRepository.sumAmountByShiftIdAndStatusAndPaymentMethodIn(
+                shiftId,
+                PaymentStatus.SUCCESS,
+                Set.of(PaymentMethod.QR_CODE, PaymentMethod.VNPAY_ATM)
+        );
+        long totalBills = paymentRepository.countByShiftIdAndStatus(shiftId, PaymentStatus.SUCCESS);
+
+        return new ShiftPaymentSummary(shiftId, cashRevenue, transferRevenue, totalBills);
+    }
+
     private PaymentResponse createPaymentInternal(CreatePaymentRequest request) {
         validatePaymentMethodProvider(request.paymentMethod(), request.provider());
+        validateShiftForPayment(request.shiftId());
 
         OrderResponse order = orderingService.getOrderDetail(request.orderId());
         ensureOrderCanCreatePayment(order);
@@ -326,6 +348,7 @@ public class BillingServiceImpl implements BillingService {
         Long cashierId = resolveStaffIdForCashier();
         Payment payment = Payment.createPending(
                 order.id(),
+            request.shiftId(),
                 order.totalAmount(),
                 request.paymentMethod(),
                 request.provider(),
@@ -741,6 +764,19 @@ public class BillingServiceImpl implements BillingService {
 
         if (!valid) {
             throw new DomainException("Invalid paymentMethod/provider combination: " + method + "/" + provider);
+        }
+    }
+
+    private void validateShiftForPayment(Long shiftId) {
+        if (shiftId == null) {
+            throw new DomainException("shiftId is required");
+        }
+
+        boolean validOpenShift = cashierShiftRepository.findById(shiftId)
+                .map(shift -> shift.getClosedAt() == null)
+                .orElse(false);
+        if (!validOpenShift) {
+            throw new DomainException("Payment requires an existing open shift");
         }
     }
 

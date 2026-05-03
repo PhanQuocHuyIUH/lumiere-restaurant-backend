@@ -1,14 +1,13 @@
 package iuh.fit.se.shift.api.dto;
 
-import java.math.BigDecimal;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotNull;
+import java.math.BigDecimal;
 
-public record OpenShiftRequest(
-        @NotNull
-        Long cashierId,
+public record CloseShiftRequest(
         @NotNull
         @DecimalMin(value = "0.0", inclusive = true)
-        BigDecimal openingTotal,
+        BigDecimal actualCash,
         String notes
-) {}
+) {
+}

@@ -1,10 +1,11 @@
 package iuh.fit.se.shift.api;
 
+import iuh.fit.se.shift.api.dto.CloseShiftRequest;
+import iuh.fit.se.shift.api.dto.CloseShiftResponse;
 import iuh.fit.se.shift.api.dto.OpenShiftRequest;
 import iuh.fit.se.shift.api.dto.ShiftResponse;
 import iuh.fit.se.shift.application.ShiftService;
 import jakarta.validation.Valid;
-import java.math.BigDecimal;
 import java.util.List;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -28,14 +29,14 @@ public class ShiftController {
 
     @PreAuthorize("hasAnyRole('CASHIER', 'MANAGER')")
     @PostMapping("/{id}/close")
-    public ResponseEntity<ShiftResponse> close(@PathVariable Long id, @RequestParam BigDecimal closingTotal) {
-        return ResponseEntity.ok(shiftService.closeShift(id, closingTotal));
+    public ResponseEntity<CloseShiftResponse> close(@PathVariable Long id, @Valid @RequestBody CloseShiftRequest request) {
+        return ResponseEntity.ok(shiftService.closeShift(id, request));
     }
 
     @PreAuthorize("hasAnyRole('CASHIER', 'MANAGER')")
-    @GetMapping("/current/{cashierId}")
-    public ResponseEntity<ShiftResponse> current(@PathVariable Long cashierId) {
-        return ResponseEntity.ok(shiftService.getCurrentForCashier(cashierId));
+    @GetMapping("/current")
+    public ResponseEntity<ShiftResponse> current() {
+        return ResponseEntity.ok(shiftService.getCurrentShift());
     }
 
     @PreAuthorize("hasRole('MANAGER')")

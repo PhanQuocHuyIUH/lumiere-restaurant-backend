@@ -12,4 +12,6 @@ public interface MenuItemRepository extends JpaRepository<MenuItem, Long> {
     List<MenuItem> findAllByDeletedAtIsNullOrderByIdAsc();
 
     List<MenuItem> findAllByCategoryIdAndDeletedAtIsNullOrderByIdAsc(Long categoryId);
-}
+
+    long countByCategoryIdAndDeletedAtIsNull(Long categoryId);
+}
