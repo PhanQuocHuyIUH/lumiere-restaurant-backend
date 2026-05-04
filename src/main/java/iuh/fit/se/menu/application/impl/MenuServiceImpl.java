@@ -4,6 +4,7 @@ import iuh.fit.se.inventory.domain.Ingredient;
 import iuh.fit.se.inventory.infrastructure.IngredientRepository;
 import iuh.fit.se.menu.api.dto.CustomerMenuCategoryResponse;
 import iuh.fit.se.menu.api.dto.CustomerMenuItemResponse;
+import iuh.fit.se.menu.api.dto.MenuCategorySummaryResponse;
 import iuh.fit.se.menu.api.dto.MenuCategoryResponse;
 import iuh.fit.se.menu.api.dto.MenuItemResponse;
 import iuh.fit.se.menu.api.dto.admin.AdminMenuCategoryListItemResponse;
@@ -106,6 +107,14 @@ public class MenuServiceImpl implements MenuService {
                         category,
                         itemsByCategoryId.getOrDefault(category.getId(), List.of())
                 ))
+                .toList();
+    }
+
+    @Override
+    @Cacheable(value = "menu", key = "'categories'")
+    public List<MenuCategorySummaryResponse> getStaffMenuCategories() {
+        return menuCategoryRepository.findAllByDeletedAtIsNullOrderByDisplayOrderAscIdAsc().stream()
+                .map(MenuCategorySummaryResponse::from)
                 .toList();
     }
 

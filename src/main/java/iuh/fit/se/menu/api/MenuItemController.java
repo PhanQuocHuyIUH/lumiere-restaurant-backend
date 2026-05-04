@@ -1,6 +1,7 @@
 package iuh.fit.se.menu.api;
 
 import iuh.fit.se.menu.api.dto.MenuCategoryResponse;
+import iuh.fit.se.menu.api.dto.MenuCategorySummaryResponse;
 import iuh.fit.se.menu.api.dto.MenuItemResponse;
 import iuh.fit.se.menu.application.MenuItemDTO;
 import iuh.fit.se.menu.application.MenuService;
@@ -29,6 +30,12 @@ public class MenuItemController {
     @GetMapping
     public ResponseEntity<ApiResponse<List<MenuCategoryResponse>>> getMenu() {
         return ResponseEntity.ok(ApiResponse.ok(menuService.getMenu()));
+    }
+
+    @GetMapping("/categories")
+    @PreAuthorize("hasAnyRole('WAITER', 'MANAGER')")
+    public ResponseEntity<ApiResponse<List<MenuCategorySummaryResponse>>> getCategories() {
+        return ResponseEntity.ok(ApiResponse.ok(menuService.getStaffMenuCategories()));
     }
 
     /**

@@ -1,6 +1,7 @@
 package iuh.fit.se.menu.application;
 
 import iuh.fit.se.menu.api.dto.CustomerMenuCategoryResponse;
+import iuh.fit.se.menu.api.dto.MenuCategorySummaryResponse;
 import iuh.fit.se.menu.api.dto.MenuCategoryResponse;
 import iuh.fit.se.menu.api.dto.MenuItemResponse;
 import iuh.fit.se.menu.api.dto.admin.AdminMenuCategoryListItemResponse;
@@ -20,6 +21,8 @@ import org.springframework.web.multipart.MultipartFile;
 public interface MenuService {
 
     List<MenuCategoryResponse> getMenu();
+
+    List<MenuCategorySummaryResponse> getStaffMenuCategories();
 
     List<CustomerMenuCategoryResponse> getCustomerMenu();
 
