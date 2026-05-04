@@ -14,8 +14,12 @@ import iuh.fit.se.kitchen.infrastructure.BatchPerformanceRepository;
 import iuh.fit.se.kitchen.infrastructure.KitchenBatchItemRepository;
 import iuh.fit.se.kitchen.infrastructure.KitchenBatchRepository;
 import iuh.fit.se.kitchen.infrastructure.KitchenTaskRepository;
+import iuh.fit.se.menu.domain.MenuItem;
+import iuh.fit.se.menu.infrastructure.MenuItemRepository;
 import iuh.fit.se.ordering.application.OrderingService;
+import iuh.fit.se.ordering.domain.Order;
 import iuh.fit.se.ordering.domain.OrderItem;
+import iuh.fit.se.ordering.infrastructure.OrderRepository;
 import iuh.fit.se.ordering.infrastructure.OrderItemRepository;
 import iuh.fit.se.shared.event.BatchDoneEvent;
 import iuh.fit.se.shared.event.KitchenTaskDoneEvent;
@@ -46,7 +50,9 @@ public class KitchenServiceImpl implements KitchenService {
     private final KitchenBatchItemRepository kitchenBatchItemRepository;
     private final BatchPerformanceRepository batchPerformanceRepository;
     private final KitchenBatchRepository kitchenBatchRepository;
+    private final OrderRepository orderRepository;
     private final OrderItemRepository orderItemRepository;
+    private final MenuItemRepository menuItemRepository;
     private final OrderingService orderingService;
     private final ApplicationEventPublisher eventPublisher;
     private final SimpMessagingTemplate messagingTemplate;
@@ -57,7 +63,9 @@ public class KitchenServiceImpl implements KitchenService {
             KitchenBatchItemRepository kitchenBatchItemRepository,
             BatchPerformanceRepository batchPerformanceRepository,
             KitchenBatchRepository kitchenBatchRepository,
+                OrderRepository orderRepository,
             OrderItemRepository orderItemRepository,
+                MenuItemRepository menuItemRepository,
             OrderingService orderingService,
             ApplicationEventPublisher eventPublisher,
             SimpMessagingTemplate messagingTemplate,
@@ -67,7 +75,9 @@ public class KitchenServiceImpl implements KitchenService {
         this.kitchenBatchItemRepository = kitchenBatchItemRepository;
         this.batchPerformanceRepository = batchPerformanceRepository;
         this.kitchenBatchRepository = kitchenBatchRepository;
+        this.orderRepository = orderRepository;
         this.orderItemRepository = orderItemRepository;
+        this.menuItemRepository = menuItemRepository;
         this.orderingService = orderingService;
         this.eventPublisher = eventPublisher;
         this.messagingTemplate = messagingTemplate;
@@ -232,6 +242,24 @@ public class KitchenServiceImpl implements KitchenService {
             return List.of();
         }
 
+        Order order = getOrderEntity(orderId);
+        List<OrderItem> orderItems = orderItemRepository.findAllById(orderItemIds);
+        Map<Long, OrderItem> orderItemsById = new LinkedHashMap<>();
+        for (OrderItem orderItem : orderItems) {
+            orderItemsById.put(orderItem.getId(), orderItem);
+        }
+
+        List<Long> menuItemIds = orderItems.stream()
+                .map(OrderItem::getMenuItemId)
+                .filter(menuItemId -> menuItemId != null)
+                .distinct()
+                .toList();
+        List<MenuItem> menuItems = menuItemRepository.findAllById(menuItemIds);
+        Map<Long, MenuItem> menuItemsById = new LinkedHashMap<>();
+        for (MenuItem menuItem : menuItems) {
+            menuItemsById.put(menuItem.getId(), menuItem);
+        }
+
         List<KitchenTask> existingTasks = kitchenTaskRepository.findAllByOrderItemIdIn(orderItemIds);
         Map<Long, KitchenTask> existingByOrderItemId = new LinkedHashMap<>();
         for (KitchenTask task : existingTasks) {
@@ -240,9 +268,32 @@ public class KitchenServiceImpl implements KitchenService {
 
         List<KitchenTask> tasksToCreate = new ArrayList<>();
         for (Long orderItemId : orderItemIds) {
-            if (!existingByOrderItemId.containsKey(orderItemId)) {
-                tasksToCreate.add(KitchenTask.create(orderItemId));
+            if (existingByOrderItemId.containsKey(orderItemId)) {
+                continue;
             }
+
+            OrderItem orderItem = orderItemsById.get(orderItemId);
+            if (orderItem == null || orderItem.getMenuItemId() == null) {
+                continue;
+            }
+
+            MenuItem menuItem = menuItemsById.get(orderItem.getMenuItemId());
+            if (menuItem == null) {
+                continue;
+            }
+
+            tasksToCreate.add(KitchenTask.create(
+                    order.getId(),
+                    order.getTableId(),
+                    orderItem.getId(),
+                    menuItem.getId(),
+                    menuItem.getName(),
+                    menuItem.getImageUrl(),
+                    orderItem.getQuantity(),
+                    orderItem.getNote(),
+                    order.getNote(),
+                    menuItem.getCookTime()
+            ));
         }
 
         List<KitchenTask> createdTasks = List.of();
@@ -296,27 +347,22 @@ public class KitchenServiceImpl implements KitchenService {
     }
 
     private Map<Long, List<KitchenTask>> groupTasksByMenuItem(List<KitchenTask> tasks) {
-        List<Long> orderItemIds = tasks.stream()
-                .map(KitchenTask::getOrderItemId)
-                .toList();
-
-        List<OrderItem> orderItems = orderItemRepository.findAllById(orderItemIds);
-        Map<Long, OrderItem> orderItemsById = new LinkedHashMap<>();
-        for (OrderItem orderItem : orderItems) {
-            orderItemsById.put(orderItem.getId(), orderItem);
-        }
-
         Map<Long, List<KitchenTask>> grouped = new LinkedHashMap<>();
         for (KitchenTask task : tasks) {
-            OrderItem orderItem = orderItemsById.get(task.getOrderItemId());
-            if (orderItem == null || orderItem.getMenuItemId() == null) {
+            Long menuItemId = task.getMenuItemId();
+            if (menuItemId == null) {
                 continue;
             }
-            grouped.computeIfAbsent(orderItem.getMenuItemId(), ignored -> new ArrayList<>())
+            grouped.computeIfAbsent(menuItemId, ignored -> new ArrayList<>())
                     .add(task);
         }
 
         return grouped;
+    }
+
+    private Order getOrderEntity(Long orderId) {
+        return orderRepository.findById(orderId)
+                .orElseThrow(() -> new ResourceNotFoundException("Order", orderId));
     }
 
     private BigDecimal estimateAiConfidence(int quantity) {

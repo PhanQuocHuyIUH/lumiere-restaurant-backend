@@ -35,6 +35,33 @@ public class KitchenTask {
     @Column(name = "order_item_id", nullable = false, unique = true)
     private Long orderItemId;
 
+    @Column(name = "order_id")
+    private Long orderId;
+
+    @Column(name = "table_id")
+    private Long tableId;
+
+    @Column(name = "menu_item_id")
+    private Long menuItemId;
+
+    @Column(name = "menu_item_name")
+    private String menuItemName;
+
+    @Column(name = "menu_item_image_url")
+    private String menuItemImageUrl;
+
+    @Column(name = "quantity")
+    private Integer quantity;
+
+    @Column(name = "order_item_note")
+    private String orderItemNote;
+
+    @Column(name = "order_note")
+    private String orderNote;
+
+    @Column(name = "expected_cook_time")
+    private Integer expectedCookTime;
+
     @Enumerated(EnumType.STRING)
     @JdbcType(PostgreSQLEnumJdbcType.class)
     @Column(name = "status", columnDefinition = "kitchen_task_status_enum", nullable = false)
@@ -67,6 +94,33 @@ public class KitchenTask {
     public static KitchenTask create(Long orderItemId) {
         return KitchenTask.builder()
                 .orderItemId(orderItemId)
+                .status(KitchenTaskStatus.CREATED)
+                .build();
+    }
+
+    public static KitchenTask create(
+            Long orderId,
+            Long tableId,
+            Long orderItemId,
+            Long menuItemId,
+            String menuItemName,
+            String menuItemImageUrl,
+            Integer quantity,
+            String orderItemNote,
+            String orderNote,
+            Integer expectedCookTime
+    ) {
+        return KitchenTask.builder()
+                .orderId(orderId)
+                .tableId(tableId)
+                .orderItemId(orderItemId)
+                .menuItemId(menuItemId)
+                .menuItemName(menuItemName)
+                .menuItemImageUrl(menuItemImageUrl)
+                .quantity(quantity)
+                .orderItemNote(orderItemNote)
+                .orderNote(orderNote)
+                .expectedCookTime(expectedCookTime)
                 .status(KitchenTaskStatus.CREATED)
                 .build();
     }
