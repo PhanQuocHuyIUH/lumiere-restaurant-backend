@@ -1,20 +1,35 @@
 services:
-  postgres:
-    image: postgres:17
-    container_name: lumiere-postgres
-    environment:
-      POSTGRES_DB: lumiere
-      POSTGRES_USER: ${DB_USER}
-      POSTGRES_PASSWORD: ${DB_PASS}
+#  postgres:
+#    image: postgres:17
+#    container_name: lumiere-postgres
+#    environment:
+#      POSTGRES_DB: lumiere
+#      POSTGRES_USER: ${DB_USER}
+#      POSTGRES_PASSWORD: ${DB_PASS}
+#    ports:
+#      - "5432:5432"
+#    volumes:
+#      - lumiere-postgres-data:/var/lib/postgresql/data
+#    healthcheck:
+#      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d lumiere"]
+#      interval: 10s
+#      timeout: 5s
+#      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: lumiere-redis
     ports:
-      - "5432:5432"
+      - "6379:6379"
     volumes:
-      - lumiere-postgres-data:/var/lib/postgresql/data
+      - lumiere-redis-data:/data
+    command: redis-server --save 60 1 --loglevel warning
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d lumiere"]
+      test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
-      retries: 10
+      retries: 5
 
 volumes:
   lumiere-postgres-data:
+  lumiere-redis-data:

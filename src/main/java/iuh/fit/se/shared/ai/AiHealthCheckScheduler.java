@@ -25,8 +25,8 @@ public class AiHealthCheckScheduler {
 
     @Async("aiTaskExecutor")
     @Scheduled(
-            initialDelayString = "${ai.health-check.initial-delay-ms:5000}",
-            fixedDelayString = "${ai.health-check.fixed-delay-ms:15000}"
+            initialDelayString = "${ai.health-check.initial-delay-ms:10000}",
+            fixedDelayString = "${ai.health-check.fixed-delay-ms:30000}"
     )
     public void refreshHealthStatus() {
         if (!aiProperties.getHealthCheck().isEnabled()) {

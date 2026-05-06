@@ -15,6 +15,8 @@ import iuh.fit.se.menu.api.dto.admin.UpdateMenuItemRequest;
 import iuh.fit.se.menu.api.dto.admin.UpsertFixedComboRequest;
 import iuh.fit.se.menu.api.dto.admin.UpsertPickComboRequest;
 import iuh.fit.se.menu.api.dto.admin.UpsertRecipeRequest;
+import iuh.fit.se.shared.ai.client.dto.ComboGenerateRequest;
+import iuh.fit.se.shared.ai.client.dto.ComboGenerateResponse;
 import java.util.List;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -59,6 +61,8 @@ public interface MenuService {
     List<RecipeItemResponse> getRecipe(Long menuItemId);
 
     void deleteRecipe(Long menuItemId);
+
+    ComboGenerateResponse generateComboSuggestions(ComboGenerateRequest request);
 
     MenuItemAvailabilityDTO checkIngredientAvailability(Long menuItemId, int quantity);
 }

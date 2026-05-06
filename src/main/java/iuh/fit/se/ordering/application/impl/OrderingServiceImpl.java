@@ -22,6 +22,12 @@ import iuh.fit.se.ordering.domain.RevisionSource;
 import iuh.fit.se.ordering.infrastructure.OrderItemRepository;
 import iuh.fit.se.ordering.infrastructure.OrderRepository;
 import iuh.fit.se.ordering.infrastructure.OrderRevisionRepository;
+import iuh.fit.se.shared.ai.AiClient;
+import iuh.fit.se.shared.ai.AiOperation;
+import iuh.fit.se.shared.ai.client.dto.ChatbotRequest;
+import iuh.fit.se.shared.ai.client.dto.ChatbotResponse;
+import iuh.fit.se.shared.ai.client.dto.RecommendRequest;
+import iuh.fit.se.shared.ai.client.dto.RecommendResponse;
 import iuh.fit.se.shared.event.OrderCancelledEvent;
 import iuh.fit.se.shared.event.OrderConfirmedEvent;
 import iuh.fit.se.shared.event.OrderCreatedEvent;
@@ -75,6 +81,7 @@ public class OrderingServiceImpl implements OrderingService {
     private final OrderItemRepository orderItemRepository;
     private final MenuService menuService;
     private final TableService tableService;
+    private final AiClient aiClient;
     private final ApplicationEventPublisher eventPublisher;
     private final ObjectMapper objectMapper;
 
@@ -84,6 +91,7 @@ public class OrderingServiceImpl implements OrderingService {
             OrderItemRepository orderItemRepository,
             MenuService menuService,
             TableService tableService,
+            AiClient aiClient,
             ApplicationEventPublisher eventPublisher,
             ObjectMapper objectMapper
     ) {
@@ -92,6 +100,7 @@ public class OrderingServiceImpl implements OrderingService {
         this.orderItemRepository = orderItemRepository;
         this.menuService = menuService;
         this.tableService = tableService;
+        this.aiClient = aiClient;
         this.eventPublisher = eventPublisher;
         this.objectMapper = objectMapper;
     }
@@ -252,6 +261,20 @@ public class OrderingServiceImpl implements OrderingService {
         return orders.stream()
                 .map(this::toOrderResponse)
                 .toList();
+    }
+
+    @Override
+    public RecommendResponse recommend(RecommendRequest request) {
+        RecommendRequest safeRequest = normalizeRecommendRequest(request);
+        return aiClient.post("/ai/recommend", safeRequest, RecommendResponse.class, AiOperation.RECOMMEND)
+                .orElseGet(() -> new RecommendResponse(false, "backend-fallback", List.of(), null));
+    }
+
+    @Override
+    public ChatbotResponse chatbot(ChatbotRequest request) {
+        ChatbotRequest safeRequest = normalizeChatbotRequest(request);
+        return aiClient.post("/ai/chatbot", safeRequest, ChatbotResponse.class, AiOperation.CHATBOT)
+                .orElseGet(() -> new ChatbotResponse(false, "AI service is temporarily unavailable", List.of()));
     }
 
     @Override
@@ -847,6 +870,51 @@ public class OrderingServiceImpl implements OrderingService {
         OrderRevision latestRevision = latestRevisionOpt.get();
         List<OrderItem> items = orderItemRepository.findAllByRevisionIdOrderByIdAsc(latestRevision.getId());
         return OrderResponse.from(order, latestRevision.getRevisionNumber(), items);
+    }
+
+    private RecommendRequest normalizeRecommendRequest(RecommendRequest request) {
+        if (request == null) {
+            throw new DomainException("Recommend request is required");
+        }
+
+        List<Long> currentItems = request.currentItems() == null
+                ? List.of()
+                : request.currentItems().stream()
+                        .filter(id -> id != null && id > 0)
+                        .distinct()
+                        .toList();
+
+        if (currentItems.isEmpty()) {
+            throw new DomainException("currentItems must not be empty");
+        }
+
+        int topK = request.topK() <= 0 ? 3 : request.topK();
+        return new RecommendRequest(currentItems, topK);
+    }
+
+    private ChatbotRequest normalizeChatbotRequest(ChatbotRequest request) {
+        if (request == null) {
+            throw new DomainException("Chatbot request is required");
+        }
+
+        String sessionId = normalizeOptionalText(request.sessionId());
+        if (sessionId == null) {
+            throw new DomainException("sessionId is required");
+        }
+
+        String message = normalizeOptionalText(request.message());
+        if (message == null) {
+            throw new DomainException("message is required");
+        }
+
+        List<Long> currentCartItemIds = request.currentCartItemIds() == null
+                ? List.of()
+                : request.currentCartItemIds().stream()
+                        .filter(id -> id != null && id > 0)
+                        .distinct()
+                        .toList();
+
+        return new ChatbotRequest(sessionId, message, currentCartItemIds);
     }
 
     private String normalizeOptionalText(String value) {

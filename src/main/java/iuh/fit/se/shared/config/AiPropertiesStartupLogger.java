@@ -25,14 +25,14 @@ public class AiPropertiesStartupLogger implements ApplicationRunner {
                 && !aiProperties.getServiceKey().isBlank();
 
         LOGGER.info(
-                "AI properties loaded: enabled={}, runtimeEnabled={}, baseUrl={}, serviceKeyConfigured={}, timeoutMs={recommend:{}, forecast:{}, anomaly:{}, chatbot:{}, batching:{}}, healthCheck={enabled:{}, initialDelayMs:{}, fixedDelayMs:{}}",
+            "AI properties loaded: enabled={}, runtimeEnabled={}, baseUrl={}, serviceKeyConfigured={}, timeoutMs={recommend:{}, forecast:{}, comboGenerate:{}, chatbot:{}, batching:{}}, healthCheck={enabled:{}, initialDelayMs:{}, fixedDelayMs:{}}",
                 aiProperties.isEnabled(),
                 aiProperties.isRuntimeEnabled(),
                 aiProperties.getBaseUrl(),
                 serviceKeyConfigured,
                 timeoutMs.getRecommend(),
                 timeoutMs.getForecast(),
-                timeoutMs.getAnomaly(),
+            timeoutMs.getComboGenerate(),
                 timeoutMs.getChatbot(),
                 timeoutMs.getBatching(),
                 healthCheck.isEnabled(),

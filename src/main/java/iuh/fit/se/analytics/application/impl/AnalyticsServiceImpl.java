@@ -10,6 +10,10 @@ import iuh.fit.se.analytics.api.dto.TopMenuItemEntry;
 import iuh.fit.se.analytics.application.AnalyticsService;
 import iuh.fit.se.analytics.domain.OrderEvent;
 import iuh.fit.se.analytics.infrastructure.OrderEventRepository;
+import iuh.fit.se.shared.ai.AiClient;
+import iuh.fit.se.shared.ai.AiOperation;
+import iuh.fit.se.shared.ai.client.dto.ForecastRequest;
+import iuh.fit.se.shared.ai.client.dto.ForecastResponse;
 import iuh.fit.se.shared.event.DomainEvent;
 import iuh.fit.se.shared.event.KitchenTaskDoneEvent;
 import iuh.fit.se.shared.event.OrderCancelledEvent;
@@ -47,10 +51,12 @@ public class AnalyticsServiceImpl implements AnalyticsService {
     private static final ZoneId DATABASE_ZONE = ZoneOffset.UTC;
 
     private final OrderEventRepository orderEventRepository;
+    private final AiClient aiClient;
     private final ObjectMapper objectMapper;
 
-    public AnalyticsServiceImpl(OrderEventRepository orderEventRepository, ObjectMapper objectMapper) {
+    public AnalyticsServiceImpl(OrderEventRepository orderEventRepository, AiClient aiClient, ObjectMapper objectMapper) {
         this.orderEventRepository = orderEventRepository;
+        this.aiClient = aiClient;
         this.objectMapper = objectMapper;
     }
 
@@ -157,6 +163,13 @@ public class AnalyticsServiceImpl implements AnalyticsService {
         );
     }
 
+    @Override
+    public ForecastResponse forecast(ForecastRequest request) {
+        ForecastRequest safeRequest = normalizeForecastRequest(request);
+        return aiClient.post("/ai/forecast", safeRequest, ForecastResponse.class, AiOperation.FORECAST)
+                .orElseGet(() -> new ForecastResponse(false, safeRequest.metric(), List.of()));
+    }
+
     private String toPostgresGranularity(GroupBy groupBy) {
         return switch (groupBy) {
             case DAY   -> "day";
@@ -180,10 +193,35 @@ public class AnalyticsServiceImpl implements AnalyticsService {
         };
     }
 
+    private ForecastRequest normalizeForecastRequest(ForecastRequest request) {
+        if (request == null) {
+            throw new DomainException("Forecast request is required");
+        }
+
+        String metric = normalizeKeyword(request.metric());
+        if (metric == null) {
+            throw new DomainException("metric is required");
+        }
+
+        int horizonDays = request.horizonDays();
+        if (horizonDays < 1) {
+            throw new DomainException("horizonDays must be greater than 0");
+        }
+
+        return new ForecastRequest(metric.toLowerCase(Locale.ROOT), horizonDays);
+    }
+
     private void validateDateRange(LocalDate fromDate, LocalDate toDate) {
         if (fromDate != null && toDate != null && fromDate.isAfter(toDate)) {
             throw new DomainException("fromDate must be before or equal to toDate");
         }
+    }
+
+    private String normalizeKeyword(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        return value.trim().toUpperCase(Locale.ROOT);
     }
 
     private Optional<Long> extractOrderId(DomainEvent event) {

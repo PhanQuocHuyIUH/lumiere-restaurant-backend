@@ -35,6 +35,12 @@ import iuh.fit.se.menu.infrastructure.ComboPickSlotRepository;
 import iuh.fit.se.menu.infrastructure.MenuCategoryRepository;
 import iuh.fit.se.menu.infrastructure.MenuItemIngredientRepository;
 import iuh.fit.se.menu.infrastructure.MenuItemRepository;
+import iuh.fit.se.shared.ai.AiClient;
+import iuh.fit.se.shared.ai.AiOperation;
+import iuh.fit.se.shared.ai.client.dto.ComboGenerateRequest;
+import iuh.fit.se.shared.ai.client.dto.ComboGenerateResponse;
+import iuh.fit.se.shared.ai.client.dto.SyncMenuRequest;
+import iuh.fit.se.shared.ai.client.dto.SyncMenuResponse;
 import iuh.fit.se.shared.exception.DomainException;
 import iuh.fit.se.shared.exception.ResourceNotFoundException;
 import iuh.fit.se.shared.storage.ImageStorageService;
@@ -44,10 +50,13 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.core.task.TaskExecutor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -68,6 +77,8 @@ public class MenuServiceImpl implements MenuService {
     private final ImageStorageService imageStorageService;
     private final MenuItemIngredientRepository menuItemIngredientRepository;
     private final IngredientRepository ingredientRepository;
+    private final AiClient aiClient;
+    private final TaskExecutor aiTaskExecutor;
 
     public MenuServiceImpl(
             MenuCategoryRepository menuCategoryRepository,
@@ -77,7 +88,9 @@ public class MenuServiceImpl implements MenuService {
             ComboPickSlotItemRepository comboPickSlotItemRepository,
             ImageStorageService imageStorageService,
             MenuItemIngredientRepository menuItemIngredientRepository,
-            IngredientRepository ingredientRepository
+            IngredientRepository ingredientRepository,
+            AiClient aiClient,
+            @Qualifier("aiTaskExecutor") TaskExecutor aiTaskExecutor
     ) {
         this.menuCategoryRepository = menuCategoryRepository;
         this.menuItemRepository = menuItemRepository;
@@ -87,6 +100,8 @@ public class MenuServiceImpl implements MenuService {
         this.imageStorageService = imageStorageService;
         this.menuItemIngredientRepository = menuItemIngredientRepository;
         this.ingredientRepository = ingredientRepository;
+        this.aiClient = aiClient;
+        this.aiTaskExecutor = aiTaskExecutor;
     }
 
     @Override
@@ -194,7 +209,7 @@ public class MenuServiceImpl implements MenuService {
     @Transactional
     @CacheEvict(value = "menu", allEntries = true)
     public MenuItemAdminDetailResponse createMenuItem(CreateMenuItemRequest request) {
-        getActiveCategory(request.categoryId());
+        MenuCategory category = getActiveCategory(request.categoryId());
 
         MenuItem item = MenuItem.builder()
                 .categoryId(request.categoryId())
@@ -210,6 +225,7 @@ public class MenuServiceImpl implements MenuService {
                 .build();
 
         MenuItem saved = menuItemRepository.save(item);
+        asyncSyncToVectorDb(saved, category.getName());
         return buildAdminDetail(saved);
     }
 
@@ -217,7 +233,7 @@ public class MenuServiceImpl implements MenuService {
     @Transactional
     @CacheEvict(value = "menu", allEntries = true)
     public MenuItemAdminDetailResponse updateMenuItem(Long id, UpdateMenuItemRequest request) {
-        getActiveCategory(request.categoryId());
+        MenuCategory category = getActiveCategory(request.categoryId());
         MenuItem item = getActiveMenuItem(id);
 
         item.updateBasics(
@@ -240,6 +256,7 @@ public class MenuServiceImpl implements MenuService {
         }
 
         MenuItem saved = menuItemRepository.save(item);
+        asyncSyncToVectorDb(saved, category.getName());
         return buildAdminDetail(saved);
     }
 
@@ -250,6 +267,7 @@ public class MenuServiceImpl implements MenuService {
         MenuItem item = getActiveMenuItem(id);
         item.softDelete();
         menuItemRepository.save(item);
+        asyncDeleteFromVectorDb(id);
     }
 
     @Override
@@ -490,6 +508,60 @@ public class MenuServiceImpl implements MenuService {
         return normalized.isEmpty() ? null : normalized;
     }
 
+    private ComboGenerateRequest normalizeComboGenerateRequest(ComboGenerateRequest request) {
+        if (request == null) {
+            throw new DomainException("Combo generate request is required");
+        }
+
+        if (request.analyzeDays() <= 0) {
+            throw new DomainException("analyzeDays must be greater than 0");
+        }
+        if (request.minSupport() <= 0 || request.minSupport() > 1) {
+            throw new DomainException("minSupport must be in range (0, 1]");
+        }
+        if (request.minConfidence() <= 0 || request.minConfidence() > 1) {
+            throw new DomainException("minConfidence must be in range (0, 1]");
+        }
+
+        return request;
+    }
+
+    private void asyncSyncToVectorDb(MenuItem item, String categoryName) {
+        CompletableFuture.runAsync(() -> {
+            try {
+                List<String> tags = new ArrayList<>();
+                tags.add(item.getItemType().name());
+                if (item.getComboKind() != null) {
+                    tags.add(item.getComboKind().name());
+                }
+                if (!item.isAvailable()) {
+                    tags.add("UNAVAILABLE");
+                }
+                SyncMenuRequest req = new SyncMenuRequest(
+                        item.getId().intValue(),
+                        item.getName(),
+                        item.getDescription(),
+                        item.getPrice() != null ? item.getPrice().doubleValue() : 0.0,
+                        categoryName,
+                        tags
+                );
+                aiClient.post("/ai/sync-menu", req, SyncMenuResponse.class, AiOperation.SYNC_MENU);
+            } catch (Exception ex) {
+                LOGGER.warn("AI sync-menu failed for item {}: {}", item.getId(), ex.getMessage());
+            }
+        }, aiTaskExecutor);
+    }
+
+    private void asyncDeleteFromVectorDb(Long itemId) {
+        CompletableFuture.runAsync(() -> {
+            try {
+                aiClient.delete("/ai/sync-menu/" + itemId, SyncMenuResponse.class, AiOperation.DELETE_MENU);
+            } catch (Exception ex) {
+                LOGGER.warn("AI delete-menu failed for item {}: {}", itemId, ex.getMessage());
+            }
+        }, aiTaskExecutor);
+    }
+
     // ========================== Recipe (Định lượng) ==========================
 
     @Override
@@ -545,6 +617,13 @@ public class MenuServiceImpl implements MenuService {
     public void deleteRecipe(Long menuItemId) {
         getActiveMenuItem(menuItemId);
         menuItemIngredientRepository.deleteAllByMenuItemId(menuItemId);
+    }
+
+    @Override
+    public ComboGenerateResponse generateComboSuggestions(ComboGenerateRequest request) {
+        ComboGenerateRequest safeRequest = normalizeComboGenerateRequest(request);
+        return aiClient.post("/ai/combo-generate", safeRequest, ComboGenerateResponse.class, AiOperation.COMBO_GENERATE)
+                .orElseGet(() -> new ComboGenerateResponse(false, List.of()));
     }
 
     // ========================== Ingredient Availability ==========================

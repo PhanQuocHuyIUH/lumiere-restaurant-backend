@@ -3,6 +3,10 @@ package iuh.fit.se.shared.ai.api;
 import iuh.fit.se.analytics.infrastructure.OrderEventRepository;
 import iuh.fit.se.billing.domain.PaymentStatus;
 import iuh.fit.se.billing.infrastructure.PaymentRepository;
+import iuh.fit.se.menu.domain.MenuCategory;
+import iuh.fit.se.menu.domain.MenuItem;
+import iuh.fit.se.menu.infrastructure.MenuCategoryRepository;
+import iuh.fit.se.menu.infrastructure.MenuItemRepository;
 import iuh.fit.se.table.infrastructure.RestaurantTableRepository;
 import iuh.fit.se.kitchen.domain.KitchenBatchStatus;
 import iuh.fit.se.kitchen.domain.KitchenTask;
@@ -26,6 +30,7 @@ import iuh.fit.se.shared.ai.api.dto.ExportOrderRevisionContext;
 import iuh.fit.se.shared.ai.api.dto.ExportTableContext;
 import iuh.fit.se.shared.ai.api.dto.KitchenBatchExportRow;
 import iuh.fit.se.shared.ai.api.dto.KitchenTaskExportRow;
+import iuh.fit.se.shared.ai.api.dto.MenuItemExportRow;
 import iuh.fit.se.shared.ai.api.dto.OrderExportRow;
 import iuh.fit.se.shared.ai.api.dto.OrderItemExportRow;
 import iuh.fit.se.shared.ai.api.dto.PaymentExportRow;
@@ -68,6 +73,8 @@ public class AiDataExportController {
     private final KitchenBatchRepository kitchenBatchRepository;
     private final BatchPerformanceRepository batchPerformanceRepository;
     private final RestaurantTableRepository restaurantTableRepository;
+    private final MenuItemRepository menuItemRepository;
+    private final MenuCategoryRepository menuCategoryRepository;
 
     public AiDataExportController(
             OrderRepository orderRepository,
@@ -78,7 +85,9 @@ public class AiDataExportController {
             KitchenTaskRepository kitchenTaskRepository,
             KitchenBatchRepository kitchenBatchRepository,
             BatchPerformanceRepository batchPerformanceRepository,
-            RestaurantTableRepository restaurantTableRepository
+            RestaurantTableRepository restaurantTableRepository,
+            MenuItemRepository menuItemRepository,
+            MenuCategoryRepository menuCategoryRepository
     ) {
         this.orderRepository = orderRepository;
         this.orderRevisionRepository = orderRevisionRepository;
@@ -89,6 +98,32 @@ public class AiDataExportController {
         this.kitchenBatchRepository = kitchenBatchRepository;
         this.batchPerformanceRepository = batchPerformanceRepository;
         this.restaurantTableRepository = restaurantTableRepository;
+        this.menuItemRepository = menuItemRepository;
+        this.menuCategoryRepository = menuCategoryRepository;
+    }
+
+    @GetMapping("/menu-items")
+    public ResponseEntity<ApiResponse<AiExportPageResponse<MenuItemExportRow>>> exportMenuItems(
+            @RequestParam(value = "page", required = false) Integer page,
+            @RequestParam(value = "size", required = false) Integer size
+    ) {
+        Pageable pageable = buildPageable(page, size, Sort.by(Sort.Direction.ASC, "id"));
+        Page<MenuItem> menuItemPage = menuItemRepository.findAllByDeletedAtIsNull(pageable);
+
+        Set<Long> categoryIds = menuItemPage.getContent().stream()
+                .map(MenuItem::getCategoryId)
+                .filter(id -> id != null && id > 0)
+                .collect(Collectors.toSet());
+
+        Map<Long, String> categoryNameById = categoryIds.isEmpty() ? Map.of() :
+                menuCategoryRepository.findAllById(categoryIds).stream()
+                        .collect(Collectors.toMap(MenuCategory::getId, MenuCategory::getName, (a, b) -> a));
+
+        Page<MenuItemExportRow> result = menuItemPage.map(item ->
+                MenuItemExportRow.from(item, categoryNameById.get(item.getCategoryId()))
+        );
+
+        return ResponseEntity.ok(ApiResponse.ok(AiExportPageResponse.from(result)));
     }
 
     @GetMapping("/orders")

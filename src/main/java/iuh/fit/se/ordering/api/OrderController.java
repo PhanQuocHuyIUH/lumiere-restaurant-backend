@@ -3,8 +3,10 @@ package iuh.fit.se.ordering.api;
 import iuh.fit.se.ordering.api.dto.AddRevisionRequest;
 import iuh.fit.se.ordering.api.dto.CreateOrderRequest;
 import iuh.fit.se.ordering.api.dto.OrderResponse;
+import iuh.fit.se.ordering.api.dto.RecommendMenuRequest;
 import iuh.fit.se.ordering.application.OrderingService;
 import iuh.fit.se.ordering.domain.OrderStatus;
+import iuh.fit.se.shared.ai.client.dto.RecommendResponse;
 import iuh.fit.se.shared.response.ApiResponse;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
@@ -51,6 +53,14 @@ public class OrderController {
             @RequestParam(value = "status", required = false) OrderStatus status
     ) {
         return ResponseEntity.ok(ApiResponse.ok(orderingService.getOrders(status)));
+    }
+
+    @PostMapping("/recommendations")
+    public ResponseEntity<ApiResponse<RecommendResponse>> recommendItems(
+            @Valid @RequestBody RecommendMenuRequest request
+    ) {
+        RecommendResponse response = orderingService.recommend(request.toAiRequest());
+        return ResponseEntity.ok(ApiResponse.ok("Recommendations generated", response));
     }
 
     @PostMapping("/{id}/revisions")

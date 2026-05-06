@@ -1,6 +1,5 @@
 package iuh.fit.se.kitchen.application.impl;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import iuh.fit.se.kitchen.domain.BatchPerformance;
 import iuh.fit.se.kitchen.api.dto.KitchenBatchResponse;
 import iuh.fit.se.kitchen.api.dto.KitchenTaskResponse;
@@ -21,6 +20,12 @@ import iuh.fit.se.ordering.domain.Order;
 import iuh.fit.se.ordering.domain.OrderItem;
 import iuh.fit.se.ordering.infrastructure.OrderRepository;
 import iuh.fit.se.ordering.infrastructure.OrderItemRepository;
+import iuh.fit.se.shared.ai.AiClient;
+import iuh.fit.se.shared.ai.AiOperation;
+import iuh.fit.se.shared.ai.client.dto.KitchenBatchingRequest;
+import iuh.fit.se.shared.ai.client.dto.KitchenBatchingResponse;
+import iuh.fit.se.shared.ai.client.dto.KitchenBatchSuggestion;
+import iuh.fit.se.shared.ai.client.dto.KitchenTaskInput;
 import iuh.fit.se.shared.event.BatchDoneEvent;
 import iuh.fit.se.shared.event.KitchenTaskDoneEvent;
 import iuh.fit.se.shared.exception.DomainException;
@@ -28,14 +33,15 @@ import iuh.fit.se.shared.exception.ResourceNotFoundException;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
@@ -54,9 +60,9 @@ public class KitchenServiceImpl implements KitchenService {
     private final OrderItemRepository orderItemRepository;
     private final MenuItemRepository menuItemRepository;
     private final OrderingService orderingService;
+    private final AiClient aiClient;
     private final ApplicationEventPublisher eventPublisher;
     private final SimpMessagingTemplate messagingTemplate;
-    private final ObjectMapper objectMapper;
 
     public KitchenServiceImpl(
             KitchenTaskRepository kitchenTaskRepository,
@@ -67,9 +73,9 @@ public class KitchenServiceImpl implements KitchenService {
             OrderItemRepository orderItemRepository,
                 MenuItemRepository menuItemRepository,
             OrderingService orderingService,
+            AiClient aiClient,
             ApplicationEventPublisher eventPublisher,
-            SimpMessagingTemplate messagingTemplate,
-            ObjectMapper objectMapper
+            SimpMessagingTemplate messagingTemplate
     ) {
         this.kitchenTaskRepository = kitchenTaskRepository;
         this.kitchenBatchItemRepository = kitchenBatchItemRepository;
@@ -79,9 +85,9 @@ public class KitchenServiceImpl implements KitchenService {
         this.orderItemRepository = orderItemRepository;
         this.menuItemRepository = menuItemRepository;
         this.orderingService = orderingService;
+        this.aiClient = aiClient;
         this.eventPublisher = eventPublisher;
         this.messagingTemplate = messagingTemplate;
-        this.objectMapper = objectMapper;
     }
 
     @Override
@@ -155,8 +161,18 @@ public class KitchenServiceImpl implements KitchenService {
             return List.of();
         }
 
+        List<KitchenBatchResponse> aiResponses = suggestBatchesByAi(suggestableTasks);
+        if (!aiResponses.isEmpty()) {
+            return aiResponses;
+        }
+
+        return suggestBatchesHeuristically(groupedTasksByMenuItem);
+    }
+
+    private List<KitchenBatchResponse> suggestBatchesHeuristically(Map<Long, List<KitchenTask>> groupedTasksByMenuItem) {
         List<KitchenBatchResponse> responses = new ArrayList<>();
-        groupedTasksByMenuItem.entrySet().stream()
+        groupedTasksByMenuItem.entrySet()
+                .stream()
                 .filter(entry -> entry.getValue().size() >= 2)
                 .sorted(Map.Entry.comparingByKey(Comparator.naturalOrder()))
                 .forEach(entry -> {
@@ -181,6 +197,81 @@ public class KitchenServiceImpl implements KitchenService {
                     responses.add(response);
                     messagingTemplate.convertAndSend("/topic/kitchen/batches", response);
                 });
+
+        return responses;
+    }
+
+    private List<KitchenBatchResponse> suggestBatchesByAi(List<KitchenTask> suggestableTasks) {
+        List<KitchenTaskInput> activeTasks = suggestableTasks.stream()
+                .filter(task -> task.getId() != null && task.getMenuItemId() != null)
+                .map(this::toKitchenTaskInput)
+                .toList();
+
+        if (activeTasks.size() < 2) {
+            return List.of();
+        }
+
+        KitchenBatchingRequest request = new KitchenBatchingRequest(activeTasks);
+        KitchenBatchingResponse aiResponse = aiClient
+                .post("/ai/kitchen-batching", request, KitchenBatchingResponse.class, AiOperation.BATCHING)
+                .orElse(null);
+
+        if (aiResponse == null || !aiResponse.success() || aiResponse.suggestions() == null || aiResponse.suggestions().isEmpty()) {
+            return List.of();
+        }
+
+        Map<Long, KitchenTask> taskById = suggestableTasks.stream()
+                .filter(task -> task.getId() != null)
+                .collect(Collectors.toMap(KitchenTask::getId, task -> task, (left, right) -> left));
+
+        Set<Long> usedTaskIds = new HashSet<>();
+        List<KitchenBatchResponse> responses = new ArrayList<>();
+
+        for (KitchenBatchSuggestion suggestion : aiResponse.suggestions()) {
+            if (suggestion == null || suggestion.taskIds() == null || suggestion.taskIds().size() < 2) {
+                continue;
+            }
+
+            List<KitchenTask> tasks = suggestion.taskIds().stream()
+                    .filter(taskId -> taskId != null && !usedTaskIds.contains(taskId))
+                    .map(taskById::get)
+                    .filter(task -> task != null && task.getMenuItemId() != null)
+                    .toList();
+
+            if (tasks.size() < 2) {
+                continue;
+            }
+
+            Long menuItemId = resolveMenuItemId(suggestion, tasks);
+            if (menuItemId == null) {
+                continue;
+            }
+
+            boolean sameMenuItem = tasks.stream().allMatch(task -> menuItemId.equals(task.getMenuItemId()));
+            if (!sameMenuItem) {
+                continue;
+            }
+
+            KitchenBatch batch = KitchenBatch.suggestByAi(
+                    menuItemId,
+                    tasks.size(),
+                    estimateAiConfidence(tasks.size()),
+                    normalizeEstimatedSavingMinutes(suggestion.estimatedSavingMinutes()),
+                    normalizeBatchReason(suggestion.reason())
+            );
+            KitchenBatch savedBatch = kitchenBatchRepository.save(batch);
+
+            List<KitchenBatchItem> batchItems = tasks.stream()
+                    .map(task -> KitchenBatchItem.assign(savedBatch.getId(), task.getId()))
+                    .toList();
+            kitchenBatchItemRepository.saveAll(batchItems);
+
+            tasks.stream().map(KitchenTask::getId).forEach(usedTaskIds::add);
+
+            KitchenBatchResponse response = KitchenBatchResponse.from(savedBatch);
+            responses.add(response);
+            messagingTemplate.convertAndSend("/topic/kitchen/batches", response);
+        }
 
         return responses;
     }
@@ -358,6 +449,46 @@ public class KitchenServiceImpl implements KitchenService {
         }
 
         return grouped;
+    }
+
+    private KitchenTaskInput toKitchenTaskInput(KitchenTask task) {
+        Instant createdAt = task.getCreatedAt() == null ? Instant.now() : task.getCreatedAt();
+        int quantity = task.getQuantity() == null || task.getQuantity() < 1 ? 1 : task.getQuantity();
+        int cookTimeSeconds = resolveCookTimeSeconds(task.getExpectedCookTime());
+
+        return new KitchenTaskInput(
+                task.getId(),
+                task.getMenuItemId(),
+                quantity,
+                createdAt.toString(),
+                cookTimeSeconds
+        );
+    }
+
+    private Long resolveMenuItemId(KitchenBatchSuggestion suggestion, List<KitchenTask> tasks) {
+        if (suggestion.menuItemId() != null) {
+            return suggestion.menuItemId();
+        }
+        return tasks.isEmpty() ? null : tasks.get(0).getMenuItemId();
+    }
+
+    private String normalizeBatchReason(String reason) {
+        if (reason == null || reason.isBlank()) {
+            return "AI suggested batch";
+        }
+        return reason.trim();
+    }
+
+    private int resolveCookTimeSeconds(Integer expectedCookTimeMinutes) {
+        int safeMinutes = expectedCookTimeMinutes == null || expectedCookTimeMinutes < 1 ? 5 : expectedCookTimeMinutes;
+        return safeMinutes * 60;
+    }
+
+    private int normalizeEstimatedSavingMinutes(double estimatedSavingMinutes) {
+        if (Double.isNaN(estimatedSavingMinutes) || Double.isInfinite(estimatedSavingMinutes)) {
+            return 0;
+        }
+        return Math.max(0, (int) Math.round(estimatedSavingMinutes));
     }
 
     private Order getOrderEntity(Long orderId) {

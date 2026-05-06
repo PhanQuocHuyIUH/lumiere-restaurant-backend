@@ -1,13 +1,18 @@
 package iuh.fit.se.analytics.api;
 
 import iuh.fit.se.analytics.api.dto.AnalyticsSummaryResponse;
+import iuh.fit.se.analytics.api.dto.ForecastTrendRequest;
 import iuh.fit.se.analytics.api.dto.RevenueDetailResponse;
 import iuh.fit.se.analytics.application.AnalyticsService;
+import iuh.fit.se.shared.ai.client.dto.ForecastResponse;
 import iuh.fit.se.shared.response.ApiResponse;
+import jakarta.validation.Valid;
 import java.time.LocalDate;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -40,5 +45,13 @@ public class AnalyticsController {
     ) {
         RevenueDetailResponse response = analyticsService.getRevenueDetail(fromDate, toDate, groupBy);
         return ResponseEntity.ok(ApiResponse.ok(response));
+    }
+
+    @PostMapping("/forecast")
+    public ResponseEntity<ApiResponse<ForecastResponse>> forecast(
+            @Valid @RequestBody ForecastTrendRequest request
+    ) {
+        ForecastResponse response = analyticsService.forecast(request.toAiRequest());
+        return ResponseEntity.ok(ApiResponse.ok("Forecast generated", response));
     }
 }

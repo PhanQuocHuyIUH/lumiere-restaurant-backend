@@ -4,6 +4,10 @@ import iuh.fit.se.ordering.api.dto.AddRevisionRequest;
 import iuh.fit.se.ordering.api.dto.CreateOrderRequest;
 import iuh.fit.se.ordering.api.dto.OrderResponse;
 import iuh.fit.se.ordering.domain.OrderStatus;
+import iuh.fit.se.shared.ai.client.dto.ChatbotRequest;
+import iuh.fit.se.shared.ai.client.dto.ChatbotResponse;
+import iuh.fit.se.shared.ai.client.dto.RecommendRequest;
+import iuh.fit.se.shared.ai.client.dto.RecommendResponse;
 import java.util.List;
 import java.util.Optional;
 
@@ -25,6 +29,10 @@ public interface OrderingService {
     OrderResponse getOrderDetail(Long orderId);
 
     List<OrderResponse> getOrders(OrderStatus status);
+
+    RecommendResponse recommend(RecommendRequest request);
+
+    ChatbotResponse chatbot(ChatbotRequest request);
 
     Long markOrderItemPreparing(Long orderItemId);
 

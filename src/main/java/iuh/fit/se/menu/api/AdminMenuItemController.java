@@ -1,6 +1,7 @@
 package iuh.fit.se.menu.api;
 
 import iuh.fit.se.menu.api.dto.admin.CreateMenuItemRequest;
+import iuh.fit.se.menu.api.dto.admin.GenerateComboSuggestionsRequest;
 import iuh.fit.se.menu.api.dto.admin.MenuItemAdminDetailResponse;
 import iuh.fit.se.menu.api.dto.admin.RecipeItemResponse;
 import iuh.fit.se.menu.api.dto.admin.UpdateMenuItemRequest;
@@ -8,6 +9,7 @@ import iuh.fit.se.menu.api.dto.admin.UpsertFixedComboRequest;
 import iuh.fit.se.menu.api.dto.admin.UpsertPickComboRequest;
 import iuh.fit.se.menu.api.dto.admin.UpsertRecipeRequest;
 import iuh.fit.se.menu.application.MenuService;
+import iuh.fit.se.shared.ai.client.dto.ComboGenerateResponse;
 import iuh.fit.se.shared.response.ApiResponse;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -96,5 +98,13 @@ public class AdminMenuItemController {
     public ResponseEntity<ApiResponse<Void>> deleteRecipe(@PathVariable("id") Long id) {
         menuService.deleteRecipe(id);
         return ResponseEntity.ok(ApiResponse.ok("Recipe deleted", null));
+    }
+
+    @PostMapping("/combo-generate")
+    public ResponseEntity<ApiResponse<ComboGenerateResponse>> generateComboSuggestions(
+            @Valid @RequestBody GenerateComboSuggestionsRequest request
+    ) {
+        ComboGenerateResponse response = menuService.generateComboSuggestions(request.toAiRequest());
+        return ResponseEntity.ok(ApiResponse.ok("Combo suggestions generated", response));
     }
 }

@@ -96,20 +96,27 @@ app:
       max-file-size-bytes: ${CLOUDINARY_MAX_FILE_SIZE_BYTES}
 
 ai:
-  enabled: ${AI_ENABLED}
-  runtime-enabled: ${AI_RUNTIME_ENABLED}
-  base-url: ${AI_BASE_URL}
-  service-key: ${AI_SERVICE_KEY}
+  enabled: ${AI_ENABLED:true}
+  runtime-enabled: ${AI_RUNTIME_ENABLED:true}
+  base-url: ${AI_BASE_URL:http://localhost:8001}
+  service-key: ${AI_SERVICE_KEY:}
   timeout-ms:
-    recommend: ${AI_TIMEOUT_RECOMMEND_MS}
-    forecast: ${AI_TIMEOUT_FORECAST_MS}
-    anomaly: ${AI_TIMEOUT_ANOMALY_MS}
-    chatbot: ${AI_TIMEOUT_CHATBOT_MS}
-    batching: ${AI_TIMEOUT_BATCHING_MS}
+    # Timeout (ms) cho từng AI operation. Gemini API thường response 3-8s → chatbot cần buffer cao.
+    sync-menu: ${AI_TIMEOUT_SYNC_MENU_MS:5000}
+    recommend: ${AI_TIMEOUT_RECOMMEND_MS:5000}
+    chatbot: ${AI_TIMEOUT_CHATBOT_MS:25000}
+    forecast: ${AI_TIMEOUT_FORECAST_MS:10000}
+    combo-generate: ${AI_TIMEOUT_COMBO_GENERATE_MS:15000}
+    batching: ${AI_TIMEOUT_BATCHING_MS:5000}
+    feedback: ${AI_TIMEOUT_FEEDBACK_MS:3000}
+    retrain: ${AI_TIMEOUT_RETRAIN_MS:5000}
+    job-status: ${AI_TIMEOUT_JOB_STATUS_MS:3000}
   health-check:
-    enabled: ${AI_HEALTH_CHECK_ENABLED}
-    initial-delay-ms: ${AI_HEALTH_CHECK_INITIAL_DELAY_MS}
-    fixed-delay-ms: ${AI_HEALTH_CHECK_FIXED_DELAY_MS}
+    enabled: ${AI_HEALTH_CHECK_ENABLED:true}
+    initial-delay-ms: ${AI_HEALTH_CHECK_INITIAL_DELAY_MS:10000}
+    fixed-delay-ms: ${AI_HEALTH_CHECK_FIXED_DELAY_MS:30000}
+  feedback:
+    flush-interval-ms: ${AI_FEEDBACK_FLUSH_INTERVAL_MS:300000}
 
 springdoc:
   swagger-ui:

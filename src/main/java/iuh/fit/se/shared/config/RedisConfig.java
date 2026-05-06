@@ -1,5 +1,6 @@
 package iuh.fit.se.shared.config;
 
+import java.time.Duration;
 import java.util.Collection;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
@@ -22,15 +23,16 @@ import org.springframework.data.redis.core.RedisTemplate;
  * Minimal Redis configuration for caching and distributed operations.
  * Supports:
  * - Payment/Refund idempotency (24h): idem:payment:*
- * - QR Session caching: qr:session:*
- * - Menu caching (30m): menu:*
- * - Dashboard counters: dashboard:*
+ * - QR Session caching: qr:session:*           TTL = dynamic (session.expiresAt)
+ * - Menu caching (30m): menu:*                 TTL = MENU_CACHE_TTL
+ * - Dashboard counters: dashboard:*            TTL = end of day
  */
 @Configuration
 @EnableCaching
 public class RedisConfig {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(RedisConfig.class);
+    private static final Duration MENU_CACHE_TTL = Duration.ofMinutes(30);
 
     @Bean
     public RedisTemplate<String, Object> redisTemplate(RedisConnectionFactory connectionFactory) {
@@ -43,7 +45,8 @@ public class RedisConfig {
     @Bean
     public CacheManager cacheManager(RedisConnectionFactory connectionFactory) {
         RedisCacheManager redisCacheManager = RedisCacheManager.builder(connectionFactory)
-                .cacheDefaults(RedisCacheConfiguration.defaultCacheConfig())
+                .cacheDefaults(RedisCacheConfiguration.defaultCacheConfig()
+                        .entryTtl(MENU_CACHE_TTL))
                 .build();
         return new SafeCacheManager(redisCacheManager);
     }

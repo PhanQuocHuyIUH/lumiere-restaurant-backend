@@ -83,6 +83,19 @@ public class AiClient {
         return executeWithResilience(path, operation, callSupplier);
     }
 
+    public <T> Optional<T> delete(String path, Class<T> responseType, AiOperation operation) {
+        Duration timeout = resolveTimeout(operation);
+        Supplier<Optional<T>> callSupplier = () -> webClient.delete()
+                .uri(path)
+                .retrieve()
+                .onStatus(HttpStatusCode::isError, clientResponse -> clientResponse.createException().flatMap(Mono::error))
+                .bodyToMono(responseType)
+                .timeout(timeout)
+                .blockOptional();
+
+        return executeWithResilience(path, operation, callSupplier);
+    }
+
     private <T> Optional<T> executeWithResilience(
             String path,
             AiOperation operation,
@@ -142,13 +155,17 @@ public class AiClient {
     private Duration resolveTimeout(AiOperation operation) {
         AiProperties.TimeoutMs timeout = aiProperties.getTimeoutMs();
         return switch (operation) {
-            case RECOMMEND -> Duration.ofMillis(timeout.getRecommend());
-            case FORECAST -> Duration.ofMillis(timeout.getForecast());
-            case ANOMALY -> Duration.ofMillis(timeout.getAnomaly());
-            case CHATBOT -> Duration.ofMillis(timeout.getChatbot());
-            case BATCHING -> Duration.ofMillis(timeout.getBatching());
-            case FEEDBACK -> Duration.ofMillis(timeout.getAnomaly());
-            case HEALTH -> Duration.ofMillis(timeout.getRecommend());
+            case SYNC_MENU      -> Duration.ofMillis(timeout.getSyncMenu());
+            case DELETE_MENU    -> Duration.ofMillis(timeout.getSyncMenu());
+            case RECOMMEND      -> Duration.ofMillis(timeout.getRecommend());
+            case CHATBOT        -> Duration.ofMillis(timeout.getChatbot());
+            case FORECAST       -> Duration.ofMillis(timeout.getForecast());
+            case COMBO_GENERATE -> Duration.ofMillis(timeout.getComboGenerate());
+            case BATCHING       -> Duration.ofMillis(timeout.getBatching());
+            case FEEDBACK       -> Duration.ofMillis(timeout.getFeedback());
+            case RETRAIN        -> Duration.ofMillis(timeout.getRetrain());
+            case JOB_STATUS     -> Duration.ofMillis(timeout.getJobStatus());
+            case HEALTH         -> Duration.ofMillis(timeout.getRecommend());
         };
     }
 
