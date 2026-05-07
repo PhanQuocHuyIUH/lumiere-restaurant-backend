@@ -5,6 +5,7 @@ import iuh.fit.se.table.domain.QrSession;
 import iuh.fit.se.table.infrastructure.QrSessionRepository;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
 import org.slf4j.Logger;
@@ -53,7 +54,7 @@ public class QrSessionCacheService {
                 });
             }
         } catch (Exception ex) {
-            LOGGER.warn("Redis error reading qr session {}: {}", sessionId, ex.getMessage());
+            LOGGER.warn("Redis error reading qr session {}", sessionId, ex);
         }
 
         // Fallback to DB
@@ -61,7 +62,7 @@ public class QrSessionCacheService {
             try {
                 save(session);
             } catch (Exception ex) {
-                LOGGER.warn("Failed to cache qr session {}: {}", sessionId, ex.getMessage());
+                LOGGER.warn("Failed to cache qr session {}", sessionId, ex);
             }
             return session;
         });
@@ -73,13 +74,12 @@ public class QrSessionCacheService {
         long expiresAt = session.getExpiresAt() == null ? now : session.getExpiresAt().toEpochMilli();
         long ttlMillis = Math.max(0, expiresAt - now);
         try {
-            Map<String, Object> map = Map.of(
-                    "sessionId", session.getSessionId(),
-                    "tableId", session.getTableId(),
-                    "expiresAt", expiresAt,
-                    "status", session.getStatus().name(),
-                    "lastAccessAt", session.getLastAccessAt() == null ? null : session.getLastAccessAt().toEpochMilli()
-            );
+            Map<String, Object> map = new LinkedHashMap<>();
+            map.put("sessionId", session.getSessionId());
+            map.put("tableId", session.getTableId());
+            map.put("expiresAt", expiresAt);
+            map.put("status", session.getStatus() == null ? null : session.getStatus().name());
+            map.put("lastAccessAt", session.getLastAccessAt() == null ? null : session.getLastAccessAt().toEpochMilli());
             String json = objectMapper.writeValueAsString(map);
             if (ttlMillis <= 0) {
                 redisTemplate.opsForValue().set(key, json);
@@ -87,7 +87,7 @@ public class QrSessionCacheService {
                 redisTemplate.opsForValue().set(key, json, ttlMillis, java.util.concurrent.TimeUnit.MILLISECONDS);
             }
         } catch (Exception ex) {
-            LOGGER.warn("Redis error saving qr session {}: {}", session.getSessionId(), ex.getMessage());
+            LOGGER.warn("Redis error saving qr session {}", session.getSessionId(), ex);
         }
     }
 
@@ -95,7 +95,7 @@ public class QrSessionCacheService {
         try {
             redisTemplate.delete(KEY_PREFIX + sessionId);
         } catch (Exception ex) {
-            LOGGER.warn("Redis error deleting qr session {}: {}", sessionId, ex.getMessage());
+            LOGGER.warn("Redis error deleting qr session {}", sessionId, ex);
         }
     }
 
@@ -114,7 +114,7 @@ public class QrSessionCacheService {
                 }
             }
         } catch (Exception ex) {
-            LOGGER.debug("Failed to refresh cache ttl for {}: {}", session.getSessionId(), ex.getMessage());
+            LOGGER.debug("Failed to refresh cache ttl for {}", session.getSessionId(), ex);
         }
     }
 }
