@@ -2,6 +2,8 @@ package iuh.fit.se.support.domain;
 
 import java.time.Instant;
 import jakarta.persistence.*;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 @Entity
 @Table(name = "support_requests", schema = "support")
@@ -20,6 +22,7 @@ public class SupportRequest {
     private String qrSessionId;
 
     @Enumerated(EnumType.STRING)
+    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
     @Column(nullable = false)
     private SupportRequestStatus status = SupportRequestStatus.CREATED;
 

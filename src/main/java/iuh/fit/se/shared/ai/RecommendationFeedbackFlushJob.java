@@ -37,32 +37,32 @@ public class RecommendationFeedbackFlushJob {
     @Async("aiTaskExecutor")
     @Scheduled(fixedDelayString = "${ai.feedback.flush-interval-ms:300000}")
     public void flush() {
-        List<String> rawEvents = stringRedisTemplate.opsForList()
-                .range(REDIS_LOG_KEY, 0, -1);
-
-        if (rawEvents == null || rawEvents.isEmpty()) {
-            return;
-        }
-
-        stringRedisTemplate.delete(REDIS_LOG_KEY);
-
-        List<FeedbackEventItem> events = rawEvents.stream()
-                .map(json -> {
-                    try {
-                        return objectMapper.readValue(json, FeedbackEventItem.class);
-                    } catch (JsonProcessingException ex) {
-                        LOGGER.debug("Skipping malformed feedback event: {}", ex.getMessage());
-                        return null;
-                    }
-                })
-                .filter(Objects::nonNull)
-                .toList();
-
-        if (events.isEmpty()) {
-            return;
-        }
-
         try {
+            List<String> rawEvents = stringRedisTemplate.opsForList()
+                    .range(REDIS_LOG_KEY, 0, -1);
+
+            if (rawEvents == null || rawEvents.isEmpty()) {
+                return;
+            }
+
+            stringRedisTemplate.delete(REDIS_LOG_KEY);
+
+            List<FeedbackEventItem> events = rawEvents.stream()
+                    .map(json -> {
+                        try {
+                            return objectMapper.readValue(json, FeedbackEventItem.class);
+                        } catch (JsonProcessingException ex) {
+                            LOGGER.debug("Skipping malformed feedback event: {}", ex.getMessage());
+                            return null;
+                        }
+                    })
+                    .filter(Objects::nonNull)
+                    .toList();
+
+            if (events.isEmpty()) {
+                return;
+            }
+
             aiClient.post("/ai/feedback", new FeedbackRequest(events), FeedbackResponse.class, AiOperation.FEEDBACK);
             LOGGER.debug("Flushed {} recommendation feedback events to AI service", events.size());
         } catch (Exception ex) {
