@@ -63,6 +63,8 @@ public class AiDataExportController {
     private static final int DEFAULT_PAGE = 0;
     private static final int DEFAULT_SIZE = 100;
     private static final int MAX_PAGE_SIZE = 500;
+    private static final Instant DEFAULT_FROM_TIME = Instant.EPOCH;
+    private static final Instant DEFAULT_TO_TIME = Instant.parse("3000-01-01T00:00:00Z");
 
     private final OrderRepository orderRepository;
     private final OrderRevisionRepository orderRevisionRepository;
@@ -143,7 +145,8 @@ public class AiDataExportController {
         Page<Order> orderPage = orderRepository.searchForAiExport(
             toFromInstant(fromDate),
             toToExclusiveInstant(toDate),
-            status,
+            status != null,
+            fallbackEnum(status, OrderStatus.CREATED),
             pageable
         );
 
@@ -178,7 +181,8 @@ public class AiDataExportController {
         Page<OrderItem> orderItemPage = orderItemRepository.searchForAiExport(
             toFromInstant(fromDate),
             toToExclusiveInstant(toDate),
-            status,
+            status != null,
+            fallbackEnum(status, OrderItemStatus.PENDING),
             pageable
         );
 
@@ -218,9 +222,10 @@ public class AiDataExportController {
         validateDateRange(fromDate, toDate);
         Pageable pageable = buildPageable(page, size, Sort.by(Sort.Direction.DESC, "createdAt", "id"));
         Page<PaymentExportRow> result = paymentRepository.searchForAiExport(
-                        toFromInstant(fromDate),
-                        toToExclusiveInstant(toDate),
-                        status,
+                toFromInstant(fromDate),
+                toToExclusiveInstant(toDate),
+                status != null,
+                fallbackEnum(status, PaymentStatus.PENDING),
                         pageable
                 )
                 .map(PaymentExportRow::from);
@@ -243,9 +248,10 @@ public class AiDataExportController {
         validateDateRange(fromDate, toDate);
         Pageable pageable = buildPageable(page, size, Sort.by(Sort.Direction.DESC, "createdAt", "id"));
         Page<AnalyticsEventExportRow> result = orderEventRepository.searchForAiExport(
-                        toFromInstant(fromDate),
-                        toToExclusiveInstant(toDate),
-                        normalizeKeyword(eventType),
+                toFromInstant(fromDate),
+                toToExclusiveInstant(toDate),
+                eventType != null && !eventType.isBlank(),
+                normalizeKeyword(eventType),
                         pageable
                 )
                 .map(AnalyticsEventExportRow::from);
@@ -268,9 +274,10 @@ public class AiDataExportController {
         validateDateRange(fromDate, toDate);
         Pageable pageable = buildPageable(page, size, Sort.by(Sort.Direction.DESC, "createdAt", "id"));
         Page<KitchenTaskExportRow> result = kitchenTaskRepository.searchForAiExport(
-                        toFromInstant(fromDate),
-                        toToExclusiveInstant(toDate),
-                        status,
+                toFromInstant(fromDate),
+                toToExclusiveInstant(toDate),
+                status != null,
+                fallbackEnum(status, KitchenTaskStatus.CREATED),
                         pageable
                 )
                 .map(KitchenTaskExportRow::from);
@@ -293,9 +300,10 @@ public class AiDataExportController {
         validateDateRange(fromDate, toDate);
         Pageable pageable = buildPageable(page, size, Sort.by(Sort.Direction.DESC, "createdAt", "id"));
         Page<KitchenBatchExportRow> result = kitchenBatchRepository.searchForAiExport(
-                        toFromInstant(fromDate),
-                        toToExclusiveInstant(toDate),
-                        status,
+                toFromInstant(fromDate),
+                toToExclusiveInstant(toDate),
+                status != null,
+                fallbackEnum(status, KitchenBatchStatus.SUGGESTED),
                         pageable
                 )
                 .map(KitchenBatchExportRow::from);
@@ -317,8 +325,8 @@ public class AiDataExportController {
         validateDateRange(fromDate, toDate);
         Pageable pageable = buildPageable(page, size, Sort.by(Sort.Direction.DESC, "recordedAt", "id"));
         Page<BatchPerformanceExportRow> result = batchPerformanceRepository.searchForAiExport(
-                        toFromInstant(fromDate),
-                        toToExclusiveInstant(toDate),
+                toFromInstant(fromDate),
+                toToExclusiveInstant(toDate),
                         pageable
                 )
                 .map(BatchPerformanceExportRow::from);
@@ -426,14 +434,14 @@ public class AiDataExportController {
 
     private Instant toFromInstant(LocalDate fromDate) {
         if (fromDate == null) {
-            return null;
+            return DEFAULT_FROM_TIME;
         }
         return fromDate.atStartOfDay(ZoneOffset.UTC).toInstant();
     }
 
     private Instant toToExclusiveInstant(LocalDate toDate) {
         if (toDate == null) {
-            return null;
+            return DEFAULT_TO_TIME;
         }
         return toDate.plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant();
     }
@@ -449,6 +457,10 @@ public class AiDataExportController {
             return null;
         }
         return value.trim().toUpperCase(Locale.ROOT);
+    }
+
+    private <E extends Enum<E>> E fallbackEnum(E value, E fallback) {
+        return value == null ? fallback : value;
     }
 
     private RevisionSource parseRevisionSource(String revisionSource) {

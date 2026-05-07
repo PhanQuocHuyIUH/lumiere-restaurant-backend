@@ -17,13 +17,14 @@ public interface KitchenTaskRepository extends JpaRepository<KitchenTask, Long> 
     @Query("""
         select kt
         from KitchenTask kt
-        where (:status is null or kt.status = :status)
-                            and (:fromTime is null or kt.createdAt >= :fromTime)
-                            and (:toTime is null or kt.createdAt < :toTime)
+        where kt.createdAt >= :fromTime
+                            and kt.createdAt < :toTime
+                            and (:filterByStatus = false or kt.status = :status)
         """)
     Page<KitchenTask> searchForAiExport(
         @Param("fromTime") Instant fromTime,
         @Param("toTime") Instant toTime,
+        @Param("filterByStatus") boolean filterByStatus,
         @Param("status") KitchenTaskStatus status,
         Pageable pageable
     );

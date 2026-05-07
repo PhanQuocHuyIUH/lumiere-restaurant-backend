@@ -20,8 +20,9 @@ spring:
     #   maximum-pool-size: 20
     #   minimum-idle: 5
     # --- Option 2: Supabase HikariCP ---
+    # Supabase Free/Nano: direct connections 60, pooler clients 200.
     hikari:
-      maximum-pool-size: 5
+      maximum-pool-size: 10
       minimum-idle: 2
       connection-timeout: 30000
       idle-timeout: 600000

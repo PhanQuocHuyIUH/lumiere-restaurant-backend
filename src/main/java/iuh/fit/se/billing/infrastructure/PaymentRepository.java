@@ -18,13 +18,14 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
     @Query("""
         select p
         from Payment p
-        where (:fromTime is null or p.createdAt >= :fromTime)
-          and (:toTime is null or p.createdAt < :toTime)
-          and (:status is null or p.status = :status)
+                where p.createdAt >= :fromTime
+                    and p.createdAt < :toTime
+                    and (:filterByStatus = false or p.status = :status)
         """)
     Page<Payment> searchForAiExport(
         @Param("fromTime") Instant fromTime,
         @Param("toTime") Instant toTime,
+                @Param("filterByStatus") boolean filterByStatus,
         @Param("status") PaymentStatus status,
         Pageable pageable
     );

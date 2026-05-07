@@ -15,13 +15,14 @@ public interface KitchenBatchRepository extends JpaRepository<KitchenBatch, Long
     @Query("""
         select kb
         from KitchenBatch kb
-        where (:fromTime is null or kb.createdAt >= :fromTime)
-          and (:toTime is null or kb.createdAt < :toTime)
-          and (:status is null or kb.status = :status)
+                where kb.createdAt >= :fromTime
+                    and kb.createdAt < :toTime
+                    and (:filterByStatus = false or kb.status = :status)
         """)
     Page<KitchenBatch> searchForAiExport(
         @Param("fromTime") Instant fromTime,
         @Param("toTime") Instant toTime,
+                @Param("filterByStatus") boolean filterByStatus,
         @Param("status") KitchenBatchStatus status,
         Pageable pageable
     );

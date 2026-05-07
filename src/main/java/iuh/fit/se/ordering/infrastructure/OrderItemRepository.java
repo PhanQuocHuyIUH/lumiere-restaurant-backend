@@ -16,13 +16,14 @@ public interface OrderItemRepository extends JpaRepository<OrderItem, Long> {
     @Query("""
         select oi
         from OrderItem oi
-        where (:fromTime is null or oi.createdAt >= :fromTime)
-          and (:toTime is null or oi.createdAt < :toTime)
-          and (:status is null or oi.status = :status)
+        where oi.createdAt >= :fromTime
+          and oi.createdAt < :toTime
+          and (:filterByStatus = false or oi.status = :status)
         """)
     Page<OrderItem> searchForAiExport(
         @Param("fromTime") Instant fromTime,
         @Param("toTime") Instant toTime,
+        @Param("filterByStatus") boolean filterByStatus,
         @Param("status") OrderItemStatus status,
         Pageable pageable
     );

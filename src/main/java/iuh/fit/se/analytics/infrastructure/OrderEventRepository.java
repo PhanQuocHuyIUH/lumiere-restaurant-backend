@@ -14,13 +14,14 @@ public interface OrderEventRepository extends JpaRepository<OrderEvent, Long> {
     @Query("""
         select oe
         from OrderEvent oe
-        where (:fromTime is null or oe.createdAt >= :fromTime)
-          and (:toTime is null or oe.createdAt < :toTime)
-          and (:eventType is null or oe.eventType = :eventType)
+                where oe.createdAt >= :fromTime
+                    and oe.createdAt < :toTime
+                    and (:filterByEventType = false or oe.eventType = :eventType)
         """)
     Page<OrderEvent> searchForAiExport(
         @Param("fromTime") Instant fromTime,
         @Param("toTime") Instant toTime,
+                @Param("filterByEventType") boolean filterByEventType,
         @Param("eventType") String eventType,
         Pageable pageable
     );

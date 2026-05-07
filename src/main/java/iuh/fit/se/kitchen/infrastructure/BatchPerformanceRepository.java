@@ -14,8 +14,8 @@ public interface BatchPerformanceRepository extends JpaRepository<BatchPerforman
         @Query("""
                         select bp
                         from BatchPerformance bp
-                        where (:fromTime is null or bp.recordedAt >= :fromTime)
-                            and (:toTime is null or bp.recordedAt < :toTime)
+                            where bp.recordedAt >= :fromTime
+                                and bp.recordedAt < :toTime
                         """)
         Page<BatchPerformance> searchForAiExport(
                         @Param("fromTime") Instant fromTime,
