@@ -12,4 +12,6 @@ public interface KitchenBatchItemRepository extends JpaRepository<KitchenBatchIt
     List<KitchenBatchItem> findAllByKitchenTaskIdIn(Collection<Long> kitchenTaskIds);
 
     boolean existsByKitchenTaskId(Long kitchenTaskId);
+
+    void deleteByBatchIdIn(Collection<Long> batchIds);
 }

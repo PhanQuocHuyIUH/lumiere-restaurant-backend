@@ -139,4 +139,8 @@ public class MenuItem {
         this.available = false;
         this.deletedAt = Instant.now();
     }
+
+    public void updateCookTime(Integer newCookTime) {
+        this.cookTime = newCookTime;
+    }
 }

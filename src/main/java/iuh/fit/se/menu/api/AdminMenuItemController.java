@@ -107,4 +107,24 @@ public class AdminMenuItemController {
         ComboGenerateResponse response = menuService.generateComboSuggestions(request.toAiRequest());
         return ResponseEntity.ok(ApiResponse.ok("Combo suggestions generated", response));
     }
+
+    @GetMapping("/{id}/cooktime-suggest")
+    public ResponseEntity<ApiResponse<iuh.fit.se.menu.api.dto.admin.CookTimeSuggestionResponse>> getSuggestedCookTime(
+            @PathVariable("id") Long id
+    ) {
+        return ResponseEntity.ok(ApiResponse.ok(menuService.getSuggestedCookTime(id)));
+    }
+
+    @PutMapping("/{id}/cooktime")
+    public ResponseEntity<ApiResponse<Void>> updateCookTime(
+            @PathVariable("id") Long id,
+            @RequestBody java.util.Map<String, Integer> payload
+    ) {
+        Integer newCookTime = payload.get("cookTime");
+        if (newCookTime == null) {
+            return ResponseEntity.badRequest().body(ApiResponse.error("cookTime is required", null));
+        }
+        menuService.updateCookTime(id, newCookTime);
+        return ResponseEntity.ok(ApiResponse.ok("Cook time updated", null));
+    }
 }

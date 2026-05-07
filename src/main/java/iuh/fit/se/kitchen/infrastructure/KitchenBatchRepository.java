@@ -29,4 +29,6 @@ public interface KitchenBatchRepository extends JpaRepository<KitchenBatch, Long
     List<KitchenBatch> findAllByOrderByCreatedAtDesc();
 
     List<KitchenBatch> findAllByStatusOrderByCreatedAtDesc(KitchenBatchStatus status);
+
+    List<KitchenBatch> findAllByStatusAndCreatedAtBefore(KitchenBatchStatus status, Instant time);
 }

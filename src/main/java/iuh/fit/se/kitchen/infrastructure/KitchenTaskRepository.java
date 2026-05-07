@@ -36,6 +36,8 @@ public interface KitchenTaskRepository extends JpaRepository<KitchenTask, Long> 
 
     List<KitchenTask> findAllByOrderItemIdIn(Collection<Long> orderItemIds);
 
+    List<KitchenTask> findTop10ByMenuItemIdAndStatusOrderByCompletedAtDesc(Long menuItemId, KitchenTaskStatus status);
+
     Optional<KitchenTask> findByOrderItemId(Long orderItemId);
 
     boolean existsByOrderItemId(Long orderItemId);

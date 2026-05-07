@@ -2,6 +2,7 @@ package iuh.fit.se.menu.application.impl;
 
 import iuh.fit.se.inventory.domain.Ingredient;
 import iuh.fit.se.inventory.infrastructure.IngredientRepository;
+import iuh.fit.se.kitchen.infrastructure.KitchenTaskRepository;
 import iuh.fit.se.menu.api.dto.CustomerMenuCategoryResponse;
 import iuh.fit.se.menu.api.dto.CustomerMenuItemResponse;
 import iuh.fit.se.menu.api.dto.MenuCategorySummaryResponse;
@@ -79,6 +80,7 @@ public class MenuServiceImpl implements MenuService {
     private final IngredientRepository ingredientRepository;
     private final AiClient aiClient;
     private final TaskExecutor aiTaskExecutor;
+    private final KitchenTaskRepository kitchenTaskRepository;
 
     public MenuServiceImpl(
             MenuCategoryRepository menuCategoryRepository,
@@ -90,7 +92,8 @@ public class MenuServiceImpl implements MenuService {
             MenuItemIngredientRepository menuItemIngredientRepository,
             IngredientRepository ingredientRepository,
             AiClient aiClient,
-            @Qualifier("aiTaskExecutor") TaskExecutor aiTaskExecutor
+            @Qualifier("aiTaskExecutor") TaskExecutor aiTaskExecutor,
+            KitchenTaskRepository kitchenTaskRepository
     ) {
         this.menuCategoryRepository = menuCategoryRepository;
         this.menuItemRepository = menuItemRepository;
@@ -102,6 +105,7 @@ public class MenuServiceImpl implements MenuService {
         this.ingredientRepository = ingredientRepository;
         this.aiClient = aiClient;
         this.aiTaskExecutor = aiTaskExecutor;
+        this.kitchenTaskRepository = kitchenTaskRepository;
     }
 
     @Override
@@ -657,5 +661,60 @@ public class MenuServiceImpl implements MenuService {
             return MenuItemAvailabilityDTO.available(menuItemId);
         }
         return MenuItemAvailabilityDTO.insufficient(menuItemId, shortages);
+    }
+
+    // ========================== Cook Time Suggestion ==========================
+
+    @Override
+    public iuh.fit.se.menu.api.dto.admin.CookTimeSuggestionResponse getSuggestedCookTime(Long menuItemId) {
+        MenuItem menuItem = getActiveMenuItem(menuItemId);
+
+        List<iuh.fit.se.kitchen.domain.KitchenTask> recentTasks = kitchenTaskRepository
+                .findTop10ByMenuItemIdAndStatusOrderByCompletedAtDesc(menuItemId, iuh.fit.se.kitchen.domain.KitchenTaskStatus.DONE);
+
+        List<Integer> actualSeconds = recentTasks.stream()
+                .map(iuh.fit.se.kitchen.domain.KitchenTask::getActualCookSeconds)
+                .filter(seconds -> seconds != null && seconds > 0)
+                .sorted()
+                .toList();
+
+        if (actualSeconds.isEmpty()) {
+            return new iuh.fit.se.menu.api.dto.admin.CookTimeSuggestionResponse(
+                    menuItemId,
+                    menuItem.getCookTime(),
+                    null,
+                    0,
+                    java.time.Instant.now()
+            );
+        }
+
+        // Remove outliers if size >= 5 (remove top 1 and bottom 1)
+        List<Integer> filteredSeconds = actualSeconds;
+        if (actualSeconds.size() >= 5) {
+            filteredSeconds = actualSeconds.subList(1, actualSeconds.size() - 1);
+        }
+
+        double avgSeconds = filteredSeconds.stream().mapToInt(Integer::intValue).average().orElse(0.0);
+        int suggestedMinutes = Math.max(1, (int) Math.round(avgSeconds / 60.0));
+
+        return new iuh.fit.se.menu.api.dto.admin.CookTimeSuggestionResponse(
+                menuItemId,
+                menuItem.getCookTime(),
+                suggestedMinutes,
+                actualSeconds.size(),
+                java.time.Instant.now()
+        );
+    }
+
+    @Override
+    @Transactional
+    @CacheEvict(value = "menu", allEntries = true)
+    public void updateCookTime(Long menuItemId, int newCookTimeMinutes) {
+        if (newCookTimeMinutes <= 0) {
+            throw new DomainException("Cook time must be positive");
+        }
+        MenuItem menuItem = getActiveMenuItem(menuItemId);
+        menuItem.updateCookTime(newCookTimeMinutes);
+        menuItemRepository.save(menuItem);
     }
 }

@@ -126,6 +126,10 @@ public class KitchenServiceImpl implements KitchenService {
 
         KitchenTaskResponse response = KitchenTaskResponse.from(task);
         messagingTemplate.convertAndSend("/topic/kitchen/tasks", response);
+        
+        // Also notify waiters that a specific item is done
+        messagingTemplate.convertAndSend("/topic/waiter/item-done", response);
+        
         return response;
     }
 

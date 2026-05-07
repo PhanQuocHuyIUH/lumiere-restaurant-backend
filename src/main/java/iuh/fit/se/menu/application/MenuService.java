@@ -5,6 +5,7 @@ import iuh.fit.se.menu.api.dto.MenuCategorySummaryResponse;
 import iuh.fit.se.menu.api.dto.MenuCategoryResponse;
 import iuh.fit.se.menu.api.dto.MenuItemResponse;
 import iuh.fit.se.menu.api.dto.admin.AdminMenuCategoryListItemResponse;
+import iuh.fit.se.menu.api.dto.admin.CookTimeSuggestionResponse;
 import iuh.fit.se.menu.api.dto.admin.CreateMenuCategoryRequest;
 import iuh.fit.se.menu.api.dto.admin.CreateMenuItemRequest;
 import iuh.fit.se.menu.api.dto.admin.MenuCategoryDetailResponse;
@@ -65,4 +66,8 @@ public interface MenuService {
     ComboGenerateResponse generateComboSuggestions(ComboGenerateRequest request);
 
     MenuItemAvailabilityDTO checkIngredientAvailability(Long menuItemId, int quantity);
+
+    CookTimeSuggestionResponse getSuggestedCookTime(Long menuItemId);
+
+    void updateCookTime(Long menuItemId, int newCookTimeMinutes);
 }

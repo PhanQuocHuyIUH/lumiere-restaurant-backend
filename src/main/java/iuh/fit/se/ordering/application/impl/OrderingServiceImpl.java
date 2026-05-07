@@ -46,6 +46,7 @@ import java.util.Set;
 import java.util.function.Supplier;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.InsufficientAuthenticationException;
 import org.springframework.security.core.Authentication;
@@ -84,6 +85,7 @@ public class OrderingServiceImpl implements OrderingService {
     private final AiClient aiClient;
     private final ApplicationEventPublisher eventPublisher;
     private final ObjectMapper objectMapper;
+    private final SimpMessagingTemplate messagingTemplate;
 
     public OrderingServiceImpl(
             OrderRepository orderRepository,
@@ -93,7 +95,8 @@ public class OrderingServiceImpl implements OrderingService {
             TableService tableService,
             AiClient aiClient,
             ApplicationEventPublisher eventPublisher,
-            ObjectMapper objectMapper
+            ObjectMapper objectMapper,
+            SimpMessagingTemplate messagingTemplate
     ) {
         this.orderRepository = orderRepository;
         this.orderRevisionRepository = orderRevisionRepository;
@@ -103,6 +106,7 @@ public class OrderingServiceImpl implements OrderingService {
         this.aiClient = aiClient;
         this.eventPublisher = eventPublisher;
         this.objectMapper = objectMapper;
+        this.messagingTemplate = messagingTemplate;
     }
 
     @Override
@@ -142,7 +146,14 @@ public class OrderingServiceImpl implements OrderingService {
             tableService.markTableOccupied(table.id());
 
             eventPublisher.publishEvent(new OrderCreatedEvent(order.getId(), order.getTableId()));
-            return OrderResponse.from(order, revision.getRevisionNumber(), savedItems);
+            OrderResponse response = OrderResponse.from(order, revision.getRevisionNumber(), savedItems);
+
+            if (actor.source() == RevisionSource.CUSTOMER_QR) {
+                messagingTemplate.convertAndSend("/topic/waiter/new-order", response);
+                messagingTemplate.convertAndSend("/topic/tables/" + order.getTableId(), response);
+            }
+
+            return response;
     }
 
     @Override
@@ -490,7 +501,14 @@ public class OrderingServiceImpl implements OrderingService {
         }
 
         refreshOrderTotal(order, revision.getId());
-        return OrderResponse.from(order, revision.getRevisionNumber(), savedItems);
+        OrderResponse response = OrderResponse.from(order, revision.getRevisionNumber(), savedItems);
+
+        if (actor.source() == RevisionSource.CUSTOMER_QR) {
+            messagingTemplate.convertAndSend("/topic/waiter/new-order", response);
+            messagingTemplate.convertAndSend("/topic/tables/" + order.getTableId(), response);
+        }
+
+        return response;
     }
 
     private Map<Long, MenuItemDTO> resolveAvailableMenuItems(List<CreateOrderRequest.OrderItemRequest> items) {
