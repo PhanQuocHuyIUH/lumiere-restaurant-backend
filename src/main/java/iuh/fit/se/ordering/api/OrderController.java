@@ -8,6 +8,7 @@ import iuh.fit.se.ordering.application.OrderingService;
 import iuh.fit.se.ordering.domain.OrderStatus;
 import iuh.fit.se.shared.ai.client.dto.RecommendResponse;
 import iuh.fit.se.shared.response.ApiResponse;
+import iuh.fit.se.shared.response.PagedResponse;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import java.util.List;
@@ -53,6 +54,15 @@ public class OrderController {
             @RequestParam(value = "status", required = false) OrderStatus status
     ) {
         return ResponseEntity.ok(ApiResponse.ok(orderingService.getOrders(status)));
+    }
+
+    @GetMapping("/paged")
+    public ResponseEntity<ApiResponse<PagedResponse<OrderResponse>>> getOrdersPaged(
+            @RequestParam(value = "status", required = false) OrderStatus status,
+            @RequestParam(value = "page", defaultValue = "0") int page,
+            @RequestParam(value = "size", defaultValue = "20") int size
+    ) {
+        return ResponseEntity.ok(ApiResponse.ok(orderingService.getOrdersPaged(status, page, size)));
     }
 
     @PostMapping("/recommendations")

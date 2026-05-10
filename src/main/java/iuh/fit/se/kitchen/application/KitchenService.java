@@ -4,11 +4,15 @@ import iuh.fit.se.kitchen.api.dto.KitchenBatchResponse;
 import iuh.fit.se.kitchen.api.dto.KitchenTaskResponse;
 import iuh.fit.se.kitchen.domain.KitchenBatchStatus;
 import iuh.fit.se.kitchen.domain.KitchenTaskStatus;
+import iuh.fit.se.shared.response.PagedResponse;
 import java.util.List;
 
 public interface KitchenService {
 
     List<KitchenTaskResponse> getTasks(KitchenTaskStatus status);
+
+    /** Paged listing for completed/cancelled history views (KDS "Đã xong" tab). */
+    PagedResponse<KitchenTaskResponse> getCompletedTasksPaged(int page, int size);
 
     KitchenTaskResponse startTask(Long taskId);
 

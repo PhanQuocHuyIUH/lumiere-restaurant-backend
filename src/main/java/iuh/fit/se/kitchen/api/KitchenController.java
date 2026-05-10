@@ -6,6 +6,7 @@ import iuh.fit.se.kitchen.application.KitchenService;
 import iuh.fit.se.kitchen.domain.KitchenBatchStatus;
 import iuh.fit.se.kitchen.domain.KitchenTaskStatus;
 import iuh.fit.se.shared.response.ApiResponse;
+import iuh.fit.se.shared.response.PagedResponse;
 import java.util.List;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -25,6 +26,15 @@ public class KitchenController {
             @RequestParam(value = "status", required = false) KitchenTaskStatus status
     ) {
         return ResponseEntity.ok(ApiResponse.ok(kitchenService.getTasks(status)));
+    }
+
+    /** Paginated DONE/CANCELLED history (KDS "Đã xong" tab). */
+    @GetMapping("/tasks/paged")
+    public ResponseEntity<ApiResponse<PagedResponse<KitchenTaskResponse>>> getCompletedTasksPaged(
+            @RequestParam(value = "page", defaultValue = "0") int page,
+            @RequestParam(value = "size", defaultValue = "20") int size
+    ) {
+        return ResponseEntity.ok(ApiResponse.ok(kitchenService.getCompletedTasksPaged(page, size)));
     }
 
     @PutMapping("/tasks/{id}/start")

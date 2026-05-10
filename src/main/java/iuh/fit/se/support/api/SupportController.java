@@ -1,5 +1,6 @@
 package iuh.fit.se.support.api;
 
+import iuh.fit.se.shared.response.ApiResponse;
 import iuh.fit.se.support.api.dto.CreateSupportRequest;
 import iuh.fit.se.support.api.dto.SupportResponse;
 import iuh.fit.se.support.application.SupportService;
@@ -20,37 +21,36 @@ public class SupportController {
     }
 
     @PostMapping
-    public ResponseEntity<SupportResponse> create(@Valid @RequestBody CreateSupportRequest request) {
-        SupportResponse resp = supportService.create(request);
-        return ResponseEntity.ok(resp);
+    public ResponseEntity<ApiResponse<SupportResponse>> create(@Valid @RequestBody CreateSupportRequest request) {
+        return ResponseEntity.ok(ApiResponse.ok(supportService.create(request)));
     }
 
     @GetMapping("/table/{tableCode}")
-    public ResponseEntity<List<SupportResponse>> listByTable(@PathVariable String tableCode) {
-        return ResponseEntity.ok(supportService.listByTable(tableCode));
+    public ResponseEntity<ApiResponse<List<SupportResponse>>> listByTable(@PathVariable String tableCode) {
+        return ResponseEntity.ok(ApiResponse.ok(supportService.listByTable(tableCode)));
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<SupportResponse> get(@PathVariable Long id) {
-        return ResponseEntity.ok(supportService.get(id));
+    public ResponseEntity<ApiResponse<SupportResponse>> get(@PathVariable Long id) {
+        return ResponseEntity.ok(ApiResponse.ok(supportService.get(id)));
     }
 
     // Staff endpoints
     @PreAuthorize("hasAnyRole('WAITER', 'MANAGER')")
     @GetMapping
-    public ResponseEntity<List<SupportResponse>> listAll() {
-        return ResponseEntity.ok(supportService.listAll());
+    public ResponseEntity<ApiResponse<List<SupportResponse>>> listAll() {
+        return ResponseEntity.ok(ApiResponse.ok(supportService.listAll()));
     }
 
     @PreAuthorize("hasAnyRole('WAITER', 'MANAGER')")
     @PutMapping("/{id}/assign")
-    public ResponseEntity<SupportResponse> assign(@PathVariable Long id, @RequestParam Long staffId) {
-        return ResponseEntity.ok(supportService.assign(id, staffId));
+    public ResponseEntity<ApiResponse<SupportResponse>> assign(@PathVariable Long id, @RequestParam Long staffId) {
+        return ResponseEntity.ok(ApiResponse.ok(supportService.assign(id, staffId)));
     }
 
     @PreAuthorize("hasAnyRole('WAITER', 'MANAGER')")
     @PutMapping("/{id}/status")
-    public ResponseEntity<SupportResponse> updateStatus(@PathVariable Long id, @RequestParam iuh.fit.se.support.domain.SupportRequestStatus status) {
-        return ResponseEntity.ok(supportService.updateStatus(id, status));
+    public ResponseEntity<ApiResponse<SupportResponse>> updateStatus(@PathVariable Long id, @RequestParam iuh.fit.se.support.domain.SupportRequestStatus status) {
+        return ResponseEntity.ok(ApiResponse.ok(supportService.updateStatus(id, status)));
     }
 }

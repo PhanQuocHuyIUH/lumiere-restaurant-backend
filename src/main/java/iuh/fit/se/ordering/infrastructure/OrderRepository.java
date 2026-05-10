@@ -33,6 +33,10 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
 
     List<Order> findAllByStatusOrderByCreatedAtDesc(OrderStatus status);
 
+    Page<Order> findAllByOrderByCreatedAtDesc(Pageable pageable);
+
+    Page<Order> findAllByStatusOrderByCreatedAtDesc(OrderStatus status, Pageable pageable);
+
     Optional<Order> findTopByTableIdAndStatusInOrderByCreatedAtDesc(Long tableId, Collection<OrderStatus> statuses);
 
     boolean existsByTableIdAndStatusIn(Long tableId, Collection<OrderStatus> statuses);

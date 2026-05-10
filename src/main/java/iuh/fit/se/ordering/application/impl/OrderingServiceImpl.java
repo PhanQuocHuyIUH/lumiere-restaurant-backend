@@ -33,7 +33,11 @@ import iuh.fit.se.shared.event.OrderConfirmedEvent;
 import iuh.fit.se.shared.event.OrderCreatedEvent;
 import iuh.fit.se.shared.exception.DomainException;
 import iuh.fit.se.shared.exception.ResourceNotFoundException;
+import iuh.fit.se.shared.response.PagedResponse;
 import iuh.fit.se.shared.security.JwtPrincipal;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -252,7 +256,7 @@ public class OrderingServiceImpl implements OrderingService {
 
         order.pay();
         orderRepository.save(order);
-        tableService.markTableAvailable(order.getTableId());
+        tableService.markTableCleaning(order.getTableId());
         return toOrderResponse(order);
     }
 
@@ -272,6 +276,20 @@ public class OrderingServiceImpl implements OrderingService {
         return orders.stream()
                 .map(this::toOrderResponse)
                 .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PagedResponse<OrderResponse> getOrdersPaged(OrderStatus status, int page, int size) {
+        int safePage = Math.max(0, page);
+        int safeSize = Math.min(Math.max(1, size), 100);
+        Pageable pageable = PageRequest.of(safePage, safeSize);
+
+        Page<Order> result = status == null
+                ? orderRepository.findAllByOrderByCreatedAtDesc(pageable)
+                : orderRepository.findAllByStatusOrderByCreatedAtDesc(status, pageable);
+
+        return PagedResponse.from(result.map(this::toOrderResponse));
     }
 
     @Override

@@ -35,6 +35,10 @@ public interface KitchenTaskRepository extends JpaRepository<KitchenTask, Long> 
 
     List<KitchenTask> findAllByStatusInOrderByIdDesc(Collection<KitchenTaskStatus> statuses);
 
+    Page<KitchenTask> findAllByStatusOrderByIdDesc(KitchenTaskStatus status, Pageable pageable);
+
+    Page<KitchenTask> findAllByStatusInOrderByIdDesc(Collection<KitchenTaskStatus> statuses, Pageable pageable);
+
     List<KitchenTask> findAllByOrderItemIdIn(Collection<Long> orderItemIds);
 
     List<KitchenTask> findTop10ByMenuItemIdAndStatusOrderByCompletedAtDesc(Long menuItemId, KitchenTaskStatus status);

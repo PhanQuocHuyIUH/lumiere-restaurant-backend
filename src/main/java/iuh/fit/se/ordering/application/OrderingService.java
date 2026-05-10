@@ -8,6 +8,7 @@ import iuh.fit.se.shared.ai.client.dto.ChatbotRequest;
 import iuh.fit.se.shared.ai.client.dto.ChatbotResponse;
 import iuh.fit.se.shared.ai.client.dto.RecommendRequest;
 import iuh.fit.se.shared.ai.client.dto.RecommendResponse;
+import iuh.fit.se.shared.response.PagedResponse;
 import java.util.List;
 import java.util.Optional;
 
@@ -29,6 +30,8 @@ public interface OrderingService {
     OrderResponse getOrderDetail(Long orderId);
 
     List<OrderResponse> getOrders(OrderStatus status);
+
+    PagedResponse<OrderResponse> getOrdersPaged(OrderStatus status, int page, int size);
 
     RecommendResponse recommend(RecommendRequest request);
 

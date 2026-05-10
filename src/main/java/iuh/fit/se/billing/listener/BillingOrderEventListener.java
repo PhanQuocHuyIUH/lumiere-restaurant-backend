@@ -29,9 +29,17 @@ public class BillingOrderEventListener {
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onPaymentSuccess(PaymentSuccessEvent event) {
         OrderResponse order = orderingService.markOrderPaid(event.getOrderId());
+        Map<String, Object> payload = toTablePayload(order, event);
+
         messagingTemplate.convertAndSend(
                 "/topic/tables/" + order.tableId(),
-                toTablePayload(order, event)
+                payload
+        );
+
+        // Notify waiter POS about payment success (for sound alert + badge update)
+        messagingTemplate.convertAndSend(
+                "/topic/waiter/payment-success",
+                payload
         );
     }
 
@@ -46,3 +54,4 @@ public class BillingOrderEventListener {
         return payload;
     }
 }
+

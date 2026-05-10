@@ -230,6 +230,18 @@ public class TableServiceImpl implements TableService {
 
     @Override
     @Transactional
+    public void markTableCleaning(Long tableId) {
+        RestaurantTable table = getActiveTable(tableId);
+        if (table.getStatus() == TableStatus.CLEANING) {
+            return;
+        }
+
+        table.markCleaning();
+        restaurantTableRepository.save(table);
+    }
+
+    @Override
+    @Transactional
     public TableDTO updateTableStatus(String tableCode, TableStatus newStatus) {
         RestaurantTable table = getActiveTable(tableCode);
 

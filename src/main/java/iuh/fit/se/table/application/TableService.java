@@ -25,6 +25,8 @@ public interface TableService {
 
     void markTableAvailable(Long tableId);
 
+    void markTableCleaning(Long tableId);
+
     TableDTO updateTableStatus(String tableCode, TableStatus newStatus);
 
     TableDTO createTable(int floor, int tableNo, int capacity);

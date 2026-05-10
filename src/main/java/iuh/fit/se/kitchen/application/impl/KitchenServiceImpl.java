@@ -30,6 +30,10 @@ import iuh.fit.se.shared.event.BatchDoneEvent;
 import iuh.fit.se.shared.event.KitchenTaskDoneEvent;
 import iuh.fit.se.shared.exception.DomainException;
 import iuh.fit.se.shared.exception.ResourceNotFoundException;
+import iuh.fit.se.shared.response.PagedResponse;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Duration;
@@ -100,6 +104,21 @@ public class KitchenServiceImpl implements KitchenService {
         return tasks.stream()
                 .map(KitchenTaskResponse::from)
                 .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PagedResponse<KitchenTaskResponse> getCompletedTasksPaged(int page, int size) {
+        int safePage = Math.max(0, page);
+        int safeSize = Math.min(Math.max(1, size), 100);
+        Pageable pageable = PageRequest.of(safePage, safeSize);
+
+        Page<KitchenTask> result = kitchenTaskRepository.findAllByStatusInOrderByIdDesc(
+                List.of(KitchenTaskStatus.DONE, KitchenTaskStatus.CANCELLED),
+                pageable
+        );
+
+        return PagedResponse.from(result.map(KitchenTaskResponse::from));
     }
 
     @Override

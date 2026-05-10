@@ -51,7 +51,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/support/table/*").permitAll()
                         .requestMatchers(HttpMethod.GET, "/payments/webhooks/vnpay").permitAll()
                         .requestMatchers(HttpMethod.POST, "/payments/webhooks/vnpay").permitAll()
-                        .requestMatchers("/ws/**", "/ws").permitAll()
+                        .requestMatchers("/ws/**", "/ws", "/ws-native/**", "/ws-native").permitAll()
                         .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                         .requestMatchers(HttpMethod.GET, "/menu/**").hasAnyRole("WAITER", "MANAGER")
                         .requestMatchers("/support/**").hasAnyRole("WAITER", "MANAGER")

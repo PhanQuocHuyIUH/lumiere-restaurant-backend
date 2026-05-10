@@ -7,6 +7,7 @@ import iuh.fit.se.support.domain.SupportRequest;
 import iuh.fit.se.support.infrastructure.SupportRequestRepository;
 import java.util.List;
 import java.util.stream.Collectors;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -15,16 +16,20 @@ import org.springframework.transaction.annotation.Transactional;
 public class SupportServiceImpl implements SupportService {
 
     private final SupportRequestRepository repository;
+    private final SimpMessagingTemplate messagingTemplate;
 
-    public SupportServiceImpl(SupportRequestRepository repository) {
+    public SupportServiceImpl(SupportRequestRepository repository, SimpMessagingTemplate messagingTemplate) {
         this.repository = repository;
+        this.messagingTemplate = messagingTemplate;
     }
 
     @Override
     public SupportResponse create(CreateSupportRequest request) {
         SupportRequest entity = new SupportRequest(request.message(), request.tableCode(), request.qrSessionId());
         entity = repository.save(entity);
-        return map(entity);
+        SupportResponse response = map(entity);
+        messagingTemplate.convertAndSend("/topic/waiter/support-request", response);
+        return response;
     }
 
     @Override
@@ -61,6 +66,6 @@ public class SupportServiceImpl implements SupportService {
     }
 
     private SupportResponse map(SupportRequest r) {
-        return new SupportResponse(r.getId(), r.getMessage(), r.getTableCode(), r.getQrSessionId(), r.getStatus(), r.getCreatedAt(), r.getUpdatedAt());
+        return new SupportResponse(r.getId(), r.getMessage(), r.getTableCode(), r.getQrSessionId(), r.getStatus(), r.getAssignedToStaffId(), r.getCreatedAt(), r.getUpdatedAt());
     }
 }

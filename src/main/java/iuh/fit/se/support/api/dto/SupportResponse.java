@@ -9,6 +9,7 @@ public record SupportResponse(
         String tableCode,
         String qrSessionId,
         SupportRequestStatus status,
+        Long staffId,
         Instant createdAt,
         Instant updatedAt
 ) {
