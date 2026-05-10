@@ -4,6 +4,9 @@ spring:
       enabled: false
   application:
     name: lumiere-restaurant-backend
+  threads:
+    virtual:
+      enabled: true # Bật luồng ảo của Java 21
   config:
     import: optional:file:.env[.properties]
   servlet:
@@ -73,6 +76,10 @@ server:
   servlet:
     context-path: /api/v1
   port: 8080
+  tomcat:
+      threads:
+        max: 100 
+      accept-count: 200
 logging:
   level:
     iuh.fit.se: DEBUG
