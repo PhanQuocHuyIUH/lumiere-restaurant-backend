@@ -1,6 +1,7 @@
 package iuh.fit.se.table.api;
 
 import iuh.fit.se.menu.api.dto.CustomerMenuCategoryResponse;
+import iuh.fit.se.menu.api.dto.CustomerTrendingResponse;
 import iuh.fit.se.menu.application.MenuService;
 import iuh.fit.se.table.api.dto.QrInitResponse;
 import iuh.fit.se.table.api.dto.TableQrCodeResponse;
@@ -63,6 +64,16 @@ public class TableController {
         TableDTO table = tableService.getTableByQrKey(qrKey);
         tableService.validateQrSession(qrSessionId, table.tableCode());
         return ResponseEntity.ok(ApiResponse.ok(menuService.getCustomerMenu()));
+    }
+
+    @GetMapping("/qr/{qrKey}/trending")
+    public ResponseEntity<ApiResponse<CustomerTrendingResponse>> getTrendingByQr(
+            @PathVariable("qrKey") String qrKey,
+            @RequestHeader("X-QR-Session") String qrSessionId
+    ) {
+        TableDTO table = tableService.getTableByQrKey(qrKey);
+        tableService.validateQrSession(qrSessionId, table.tableCode());
+        return ResponseEntity.ok(ApiResponse.ok(menuService.getTrending()));
     }
 
     @GetMapping("/{tableCode}/qr-code")

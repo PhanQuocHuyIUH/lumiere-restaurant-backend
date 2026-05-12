@@ -1,6 +1,7 @@
 package iuh.fit.se.menu.application;
 
 import iuh.fit.se.menu.api.dto.CustomerMenuCategoryResponse;
+import iuh.fit.se.menu.api.dto.CustomerTrendingResponse;
 import iuh.fit.se.menu.api.dto.MenuCategorySummaryResponse;
 import iuh.fit.se.menu.api.dto.MenuCategoryResponse;
 import iuh.fit.se.menu.api.dto.MenuItemResponse;
@@ -28,6 +29,8 @@ public interface MenuService {
     List<MenuCategorySummaryResponse> getStaffMenuCategories();
 
     List<CustomerMenuCategoryResponse> getCustomerMenu();
+
+    CustomerTrendingResponse getTrending();
 
     List<ManagerMenuCategoryListItemResponse> getAllCategoriesForManager();
 

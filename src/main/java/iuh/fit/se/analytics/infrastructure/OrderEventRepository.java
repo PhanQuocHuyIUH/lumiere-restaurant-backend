@@ -93,6 +93,28 @@ public interface OrderEventRepository extends JpaRepository<OrderEvent, Long> {
             @Param("toTime") Instant toTime
     );
 
+    /**
+     * Order count per menu item within PAID orders — no LIMIT, used for trending scoring.
+     */
+    @Query(value = """
+            SELECT
+                oi.menu_item_id                 AS menu_item_id,
+                COUNT(DISTINCT o.id)            AS order_count
+            FROM ordering.orders o
+            JOIN ordering.order_revisions orv ON orv.order_id = o.id
+            JOIN ordering.order_items     oi  ON oi.revision_id = orv.id
+            WHERE o.status = 'PAID'
+              AND oi.is_billable = true
+              AND oi.menu_item_id IS NOT NULL
+              AND (CAST(:fromTime AS timestamptz) IS NULL OR o.paid_at >= CAST(:fromTime AS timestamptz))
+              AND (CAST(:toTime AS timestamptz) IS NULL OR o.paid_at < CAST(:toTime AS timestamptz))
+            GROUP BY oi.menu_item_id
+            """, nativeQuery = true)
+    java.util.List<ItemOrderCountProjection> findOrderCountsByItem(
+            @Param("fromTime") Instant fromTime,
+            @Param("toTime") Instant toTime
+    );
+
     interface AnalyticsSummaryProjection {
         Long getTotalOrders();
 
@@ -125,5 +147,11 @@ public interface OrderEventRepository extends JpaRepository<OrderEvent, Long> {
         Long getOrderCount();
 
         BigDecimal getTotalRevenue();
+    }
+
+    interface ItemOrderCountProjection {
+        Long getMenuItemId();
+
+        Long getOrderCount();
     }
 }

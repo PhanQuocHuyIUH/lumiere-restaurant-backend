@@ -2,6 +2,7 @@ package iuh.fit.se.shared.config;
 
 import java.time.Duration;
 import java.util.Collection;
+import java.util.Map;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -32,7 +33,8 @@ import org.springframework.data.redis.core.RedisTemplate;
 public class RedisConfig {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(RedisConfig.class);
-    private static final Duration MENU_CACHE_TTL = Duration.ofMinutes(30);
+    private static final Duration MENU_CACHE_TTL     = Duration.ofMinutes(30);
+    private static final Duration TRENDING_CACHE_TTL = Duration.ofMinutes(5);
 
     @Bean
     public RedisTemplate<String, Object> redisTemplate(RedisConnectionFactory connectionFactory) {
@@ -44,9 +46,14 @@ public class RedisConfig {
 
     @Bean
     public CacheManager cacheManager(RedisConnectionFactory connectionFactory) {
+        RedisCacheConfiguration defaultConfig = RedisCacheConfiguration.defaultCacheConfig()
+                .entryTtl(MENU_CACHE_TTL);
+        Map<String, RedisCacheConfiguration> perCacheConfigs = Map.of(
+                "trending", RedisCacheConfiguration.defaultCacheConfig().entryTtl(TRENDING_CACHE_TTL)
+        );
         RedisCacheManager redisCacheManager = RedisCacheManager.builder(connectionFactory)
-                .cacheDefaults(RedisCacheConfiguration.defaultCacheConfig()
-                        .entryTtl(MENU_CACHE_TTL))
+                .cacheDefaults(defaultConfig)
+                .withInitialCacheConfigurations(perCacheConfigs)
                 .build();
         return new SafeCacheManager(redisCacheManager);
     }

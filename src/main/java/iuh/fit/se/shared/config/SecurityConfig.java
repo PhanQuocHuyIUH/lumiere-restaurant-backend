@@ -45,7 +45,7 @@ public class SecurityConfig {
                         .requestMatchers("/internal/ai/**").hasRole("AI_SERVICE")
                         .requestMatchers(HttpMethod.POST, "/auth/login").permitAll()
                         .requestMatchers(HttpMethod.POST, "/auth/logout").permitAll()
-                    .requestMatchers(HttpMethod.GET, "/tables/qr/*/init", "/tables/qr/*/menu").permitAll()
+                    .requestMatchers(HttpMethod.GET, "/tables/qr/*/init", "/tables/qr/*/menu", "/tables/qr/*/trending").permitAll()
                         .requestMatchers(HttpMethod.POST, "/orders", "/orders/*/revisions", "/orders/recommendations", "/chatbot", "/recommendation-logs").permitAll()
                         .requestMatchers(HttpMethod.POST, "/support").permitAll()
                         .requestMatchers(HttpMethod.GET, "/support/table/*").permitAll()

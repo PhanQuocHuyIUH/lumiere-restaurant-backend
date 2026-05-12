@@ -3,8 +3,11 @@ package iuh.fit.se.menu.application.impl;
 import iuh.fit.se.inventory.domain.Ingredient;
 import iuh.fit.se.inventory.infrastructure.IngredientRepository;
 import iuh.fit.se.kitchen.infrastructure.KitchenTaskRepository;
+import iuh.fit.se.analytics.infrastructure.OrderEventRepository;
 import iuh.fit.se.menu.api.dto.CustomerMenuCategoryResponse;
 import iuh.fit.se.menu.api.dto.CustomerMenuItemResponse;
+import iuh.fit.se.menu.api.dto.CustomerTrendingResponse;
+import iuh.fit.se.menu.api.dto.TrendingMenuItemResponse;
 import iuh.fit.se.menu.api.dto.MenuCategorySummaryResponse;
 import iuh.fit.se.menu.api.dto.MenuCategoryResponse;
 import iuh.fit.se.menu.api.dto.MenuItemResponse;
@@ -49,7 +52,12 @@ import iuh.fit.se.shared.storage.ImageStorageService;
 import iuh.fit.se.shared.storage.StoredImage;
 import java.math.BigDecimal;
 import iuh.fit.se.shared.domain.Money;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -60,6 +68,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.task.TaskExecutor;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -83,6 +92,8 @@ public class MenuServiceImpl implements MenuService {
     private final AiClient aiClient;
     private final TaskExecutor aiTaskExecutor;
     private final KitchenTaskRepository kitchenTaskRepository;
+    private final OrderEventRepository orderEventRepository;
+    private final StringRedisTemplate stringRedisTemplate;
 
     public MenuServiceImpl(
             MenuCategoryRepository menuCategoryRepository,
@@ -95,7 +106,9 @@ public class MenuServiceImpl implements MenuService {
             IngredientRepository ingredientRepository,
             AiClient aiClient,
             @Qualifier("aiTaskExecutor") TaskExecutor aiTaskExecutor,
-            KitchenTaskRepository kitchenTaskRepository
+            KitchenTaskRepository kitchenTaskRepository,
+            OrderEventRepository orderEventRepository,
+            StringRedisTemplate stringRedisTemplate
     ) {
         this.menuCategoryRepository = menuCategoryRepository;
         this.menuItemRepository = menuItemRepository;
@@ -108,6 +121,8 @@ public class MenuServiceImpl implements MenuService {
         this.aiClient = aiClient;
         this.aiTaskExecutor = aiTaskExecutor;
         this.kitchenTaskRepository = kitchenTaskRepository;
+        this.orderEventRepository = orderEventRepository;
+        this.stringRedisTemplate = stringRedisTemplate;
     }
 
     @Override
@@ -161,6 +176,93 @@ public class MenuServiceImpl implements MenuService {
                         itemsByCategoryId.getOrDefault(category.getId(), List.of())
                 ))
                 .toList();
+    }
+
+    @Override
+    @Cacheable(value = "trending", key = "'items'")
+    public CustomerTrendingResponse getTrending() {
+        List<MenuCategory> categories = menuCategoryRepository.findAllByDeletedAtIsNullOrderByDisplayOrderAscIdAsc();
+        List<MenuItem> allItems = menuItemRepository.findAllByDeletedAtIsNullOrderByIdAsc();
+
+        Map<Long, MenuCategory> categoryMap = categories.stream()
+                .collect(Collectors.toMap(MenuCategory::getId, Function.identity()));
+
+        // Order counts for the last 7 days
+        Instant from = Instant.now().minus(7, ChronoUnit.DAYS);
+        Instant to = Instant.now();
+        Map<Long, Long> orderCountByItemId = orderEventRepository.findOrderCountsByItem(from, to)
+                .stream()
+                .collect(Collectors.toMap(
+                        OrderEventRepository.ItemOrderCountProjection::getMenuItemId,
+                        OrderEventRepository.ItemOrderCountProjection::getOrderCount
+                ));
+
+        // CTR from shared Redis — written by AI service's feedback endpoint
+        Map<Long, Double> ctrByItemId = readCtrFromRedis(allItems);
+
+        // Normalize order count and blend: 0.6 × order_count + 0.4 × CTR
+        long maxCount = orderCountByItemId.values().stream().mapToLong(Long::longValue).max().orElse(1L);
+        final long divisor = maxCount == 0 ? 1L : maxCount;
+
+        List<MenuItem> ranked = allItems.stream()
+                .sorted(Comparator.comparingDouble((MenuItem item) -> {
+                    double normOrder = (double) orderCountByItemId.getOrDefault(item.getId(), 0L) / divisor;
+                    double ctr = ctrByItemId.getOrDefault(item.getId(), 0.0);
+                    return 0.6 * normOrder + 0.4 * ctr;
+                }).reversed())
+                .limit(10)
+                .toList();
+
+        // Filter by available + ingredient sufficiency, split by type
+        List<TrendingMenuItemResponse> singles = new ArrayList<>();
+        List<TrendingMenuItemResponse> combos = new ArrayList<>();
+
+        for (MenuItem item : ranked) {
+            if (!item.isAvailable()) continue;
+            boolean sufficient = checkIngredientAvailability(item.getId(), 1).sufficient();
+            if (!sufficient) continue;
+
+            MenuCategory category = categoryMap.get(item.getCategoryId());
+            TrendingMenuItemResponse dto = TrendingMenuItemResponse.from(item, category, true);
+
+            if (item.getItemType() == MenuItemType.COMBO) {
+                combos.add(dto);
+            } else {
+                singles.add(dto);
+            }
+        }
+
+        TrendingMenuItemResponse hero = singles.isEmpty() ? null : singles.get(0);
+        List<TrendingMenuItemResponse> topRanked = singles.stream().limit(3).toList();
+        List<TrendingMenuItemResponse> topCombos = combos.stream().limit(3).toList();
+
+        return new CustomerTrendingResponse(hero, topRanked, topCombos);
+    }
+
+    private Map<Long, Double> readCtrFromRedis(List<MenuItem> items) {
+        if (items.isEmpty()) return Map.of();
+        try {
+            List<String> fields = items.stream().map(item -> String.valueOf(item.getId())).toList();
+            Collection<Object> fieldKeys = new ArrayList<>(fields);
+            List<Object> impressions = stringRedisTemplate.opsForHash().multiGet("ai:ctr:imp", fieldKeys);
+            List<Object> clicks      = stringRedisTemplate.opsForHash().multiGet("ai:ctr:clk", fieldKeys);
+
+            Map<Long, Double> result = new HashMap<>();
+            for (int i = 0; i < items.size(); i++) {
+                long imp = parseLong(impressions.get(i));
+                long clk = parseLong(clicks.get(i));
+                result.put(items.get(i).getId(), imp > 0 ? (double) clk / imp : 0.0);
+            }
+            return result;
+        } catch (Exception ex) {
+            LOGGER.warn("Failed to read CTR from Redis, scoring by order count only: {}", ex.getMessage());
+            return Map.of();
+        }
+    }
+
+    private static long parseLong(Object value) {
+        if (value == null) return 0L;
+        try { return Long.parseLong(value.toString()); } catch (NumberFormatException e) { return 0L; }
     }
 
     @Override
