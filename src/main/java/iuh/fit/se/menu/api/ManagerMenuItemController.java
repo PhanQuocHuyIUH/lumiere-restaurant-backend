@@ -1,18 +1,20 @@
 package iuh.fit.se.menu.api;
 
-import iuh.fit.se.menu.api.dto.admin.CreateMenuItemRequest;
-import iuh.fit.se.menu.api.dto.admin.GenerateComboSuggestionsRequest;
-import iuh.fit.se.menu.api.dto.admin.MenuItemAdminDetailResponse;
-import iuh.fit.se.menu.api.dto.admin.RecipeItemResponse;
-import iuh.fit.se.menu.api.dto.admin.UpdateMenuItemRequest;
-import iuh.fit.se.menu.api.dto.admin.UpsertFixedComboRequest;
-import iuh.fit.se.menu.api.dto.admin.UpsertPickComboRequest;
-import iuh.fit.se.menu.api.dto.admin.UpsertRecipeRequest;
+import iuh.fit.se.menu.api.dto.manager.CreateMenuItemRequest;
+import iuh.fit.se.menu.api.dto.manager.CookTimeSuggestionResponse;
+import iuh.fit.se.menu.api.dto.manager.GenerateComboSuggestionsRequest;
+import iuh.fit.se.menu.api.dto.manager.MenuItemManagerDetailResponse;
+import iuh.fit.se.menu.api.dto.manager.RecipeItemResponse;
+import iuh.fit.se.menu.api.dto.manager.UpdateMenuItemRequest;
+import iuh.fit.se.menu.api.dto.manager.UpsertFixedComboRequest;
+import iuh.fit.se.menu.api.dto.manager.UpsertPickComboRequest;
+import iuh.fit.se.menu.api.dto.manager.UpsertRecipeRequest;
 import iuh.fit.se.menu.application.MenuService;
 import iuh.fit.se.shared.ai.client.dto.ComboGenerateResponse;
 import iuh.fit.se.shared.response.ApiResponse;
 import jakarta.validation.Valid;
 import java.util.List;
+import java.util.Map;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -26,33 +28,33 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/admin/menu/items")
+@RequestMapping("/manager/menu/items")
 @PreAuthorize("hasRole('MANAGER')")
-public class AdminMenuItemController {
+public class ManagerMenuItemController {
 
     private final MenuService menuService;
 
-    public AdminMenuItemController(MenuService menuService) {
+    public ManagerMenuItemController(MenuService menuService) {
         this.menuService = menuService;
     }
 
     @PostMapping
-    public ResponseEntity<ApiResponse<MenuItemAdminDetailResponse>> create(@Valid @RequestBody CreateMenuItemRequest request) {
-        MenuItemAdminDetailResponse created = menuService.createMenuItem(request);
+    public ResponseEntity<ApiResponse<MenuItemManagerDetailResponse>> create(@Valid @RequestBody CreateMenuItemRequest request) {
+        MenuItemManagerDetailResponse created = menuService.createMenuItem(request);
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.ok("Menu item created", created));
     }
 
     @GetMapping("/{id}")
-    public ResponseEntity<ApiResponse<MenuItemAdminDetailResponse>> getDetail(@PathVariable("id") Long id) {
-        return ResponseEntity.ok(ApiResponse.ok(menuService.getMenuItemAdminDetail(id)));
+    public ResponseEntity<ApiResponse<MenuItemManagerDetailResponse>> getDetail(@PathVariable("id") Long id) {
+        return ResponseEntity.ok(ApiResponse.ok(menuService.getMenuItemManagerDetail(id)));
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<ApiResponse<MenuItemAdminDetailResponse>> update(
+    public ResponseEntity<ApiResponse<MenuItemManagerDetailResponse>> update(
             @PathVariable("id") Long id,
             @Valid @RequestBody UpdateMenuItemRequest request
     ) {
-        MenuItemAdminDetailResponse updated = menuService.updateMenuItem(id, request);
+        MenuItemManagerDetailResponse updated = menuService.updateMenuItem(id, request);
         return ResponseEntity.ok(ApiResponse.ok("Menu item updated", updated));
     }
 
@@ -63,20 +65,20 @@ public class AdminMenuItemController {
     }
 
     @PutMapping("/{id}/combo/fixed")
-    public ResponseEntity<ApiResponse<MenuItemAdminDetailResponse>> upsertFixedCombo(
+    public ResponseEntity<ApiResponse<MenuItemManagerDetailResponse>> upsertFixedCombo(
             @PathVariable("id") Long id,
             @Valid @RequestBody UpsertFixedComboRequest request
     ) {
-        MenuItemAdminDetailResponse updated = menuService.upsertFixedComboConfig(id, request);
+        MenuItemManagerDetailResponse updated = menuService.upsertFixedComboConfig(id, request);
         return ResponseEntity.ok(ApiResponse.ok("Fixed combo config updated", updated));
     }
 
     @PutMapping("/{id}/combo/pick")
-    public ResponseEntity<ApiResponse<MenuItemAdminDetailResponse>> upsertPickCombo(
+    public ResponseEntity<ApiResponse<MenuItemManagerDetailResponse>> upsertPickCombo(
             @PathVariable("id") Long id,
             @Valid @RequestBody UpsertPickComboRequest request
     ) {
-        MenuItemAdminDetailResponse updated = menuService.upsertPickComboConfig(id, request);
+        MenuItemManagerDetailResponse updated = menuService.upsertPickComboConfig(id, request);
         return ResponseEntity.ok(ApiResponse.ok("Pick combo config updated", updated));
     }
 
@@ -109,7 +111,7 @@ public class AdminMenuItemController {
     }
 
     @GetMapping("/{id}/cooktime-suggest")
-    public ResponseEntity<ApiResponse<iuh.fit.se.menu.api.dto.admin.CookTimeSuggestionResponse>> getSuggestedCookTime(
+    public ResponseEntity<ApiResponse<CookTimeSuggestionResponse>> getSuggestedCookTime(
             @PathVariable("id") Long id
     ) {
         return ResponseEntity.ok(ApiResponse.ok(menuService.getSuggestedCookTime(id)));
@@ -118,7 +120,7 @@ public class AdminMenuItemController {
     @PutMapping("/{id}/cooktime")
     public ResponseEntity<ApiResponse<Void>> updateCookTime(
             @PathVariable("id") Long id,
-            @RequestBody java.util.Map<String, Integer> payload
+            @RequestBody Map<String, Integer> payload
     ) {
         Integer newCookTime = payload.get("cookTime");
         if (newCookTime == null) {

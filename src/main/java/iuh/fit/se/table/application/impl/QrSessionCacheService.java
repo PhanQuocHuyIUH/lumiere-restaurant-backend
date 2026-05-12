@@ -1,9 +1,9 @@
 package iuh.fit.se.table.application.impl;
 
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import iuh.fit.se.table.domain.QrSession;
 import iuh.fit.se.table.infrastructure.QrSessionRepository;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -36,10 +36,13 @@ public class QrSessionCacheService {
         try {
             Object raw = redisTemplate.opsForValue().get(key);
             if (raw instanceof String) {
-                Map map = objectMapper.readValue((String) raw, Map.class);
+                Map<String, Object> map = objectMapper.readValue(
+                        (String) raw,
+                        new TypeReference<Map<String, Object>>() {
+                        }
+                );
                 long expiresAt = ((Number) map.getOrDefault("expiresAt", 0)).longValue();
                 String status = (String) map.getOrDefault("status", "");
-                Long tableId = map.get("tableId") == null ? null : ((Number) map.get("tableId")).longValue();
                 Instant now = Instant.now();
                 if (expiresAt <= now.toEpochMilli() || "EXPIRED".equals(status)) {
                     // cached expired

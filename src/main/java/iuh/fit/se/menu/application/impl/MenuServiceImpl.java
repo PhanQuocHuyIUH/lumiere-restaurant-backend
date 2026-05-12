@@ -8,17 +8,18 @@ import iuh.fit.se.menu.api.dto.CustomerMenuItemResponse;
 import iuh.fit.se.menu.api.dto.MenuCategorySummaryResponse;
 import iuh.fit.se.menu.api.dto.MenuCategoryResponse;
 import iuh.fit.se.menu.api.dto.MenuItemResponse;
-import iuh.fit.se.menu.api.dto.admin.AdminMenuCategoryListItemResponse;
-import iuh.fit.se.menu.api.dto.admin.CreateMenuCategoryRequest;
-import iuh.fit.se.menu.api.dto.admin.CreateMenuItemRequest;
-import iuh.fit.se.menu.api.dto.admin.MenuCategoryDetailResponse;
-import iuh.fit.se.menu.api.dto.admin.MenuItemAdminDetailResponse;
-import iuh.fit.se.menu.api.dto.admin.RecipeItemResponse;
-import iuh.fit.se.menu.api.dto.admin.UpdateMenuCategoryRequest;
-import iuh.fit.se.menu.api.dto.admin.UpdateMenuItemRequest;
-import iuh.fit.se.menu.api.dto.admin.UpsertFixedComboRequest;
-import iuh.fit.se.menu.api.dto.admin.UpsertPickComboRequest;
-import iuh.fit.se.menu.api.dto.admin.UpsertRecipeRequest;
+import iuh.fit.se.menu.api.dto.manager.CookTimeSuggestionResponse;
+import iuh.fit.se.menu.api.dto.manager.ManagerMenuCategoryListItemResponse;
+import iuh.fit.se.menu.api.dto.manager.CreateMenuCategoryRequest;
+import iuh.fit.se.menu.api.dto.manager.CreateMenuItemRequest;
+import iuh.fit.se.menu.api.dto.manager.MenuCategoryDetailResponse;
+import iuh.fit.se.menu.api.dto.manager.MenuItemManagerDetailResponse;
+import iuh.fit.se.menu.api.dto.manager.RecipeItemResponse;
+import iuh.fit.se.menu.api.dto.manager.UpdateMenuCategoryRequest;
+import iuh.fit.se.menu.api.dto.manager.UpdateMenuItemRequest;
+import iuh.fit.se.menu.api.dto.manager.UpsertFixedComboRequest;
+import iuh.fit.se.menu.api.dto.manager.UpsertPickComboRequest;
+import iuh.fit.se.menu.api.dto.manager.UpsertRecipeRequest;
 import iuh.fit.se.menu.application.MenuItemAvailabilityDTO;
 import iuh.fit.se.menu.application.MenuItemDTO;
 import iuh.fit.se.menu.application.MenuService;
@@ -47,6 +48,7 @@ import iuh.fit.se.shared.exception.ResourceNotFoundException;
 import iuh.fit.se.shared.storage.ImageStorageService;
 import iuh.fit.se.shared.storage.StoredImage;
 import java.math.BigDecimal;
+import iuh.fit.se.shared.domain.Money;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -162,11 +164,11 @@ public class MenuServiceImpl implements MenuService {
     }
 
     @Override
-    public List<AdminMenuCategoryListItemResponse> getAllCategoriesForAdmin() {
+    public List<ManagerMenuCategoryListItemResponse> getAllCategoriesForManager() {
         List<MenuCategory> categories =
                 menuCategoryRepository.findAllByDeletedAtIsNullOrderByDisplayOrderAscIdAsc();
         return categories.stream()
-                .map(category -> AdminMenuCategoryListItemResponse.from(
+                .map(category -> ManagerMenuCategoryListItemResponse.from(
                         category,
                         menuItemRepository.countByCategoryIdAndDeletedAtIsNull(category.getId())
                 ))
@@ -212,31 +214,31 @@ public class MenuServiceImpl implements MenuService {
     @Override
     @Transactional
     @CacheEvict(value = "menu", allEntries = true)
-    public MenuItemAdminDetailResponse createMenuItem(CreateMenuItemRequest request) {
+    public MenuItemManagerDetailResponse createMenuItem(CreateMenuItemRequest request) {
         MenuCategory category = getActiveCategory(request.categoryId());
 
         MenuItem item = MenuItem.builder()
                 .categoryId(request.categoryId())
                 .name(request.name().trim())
                 .description(normalizeOptionalText(request.description()))
-                .price(request.price())
+                .price(Money.of(request.price()))
                 .cookTime(request.cookTime())
                 .imageUrl(normalizeOptionalText(request.imageUrl()))
-
                 .available(true)
                 .itemType(request.itemType() == null ? MenuItemType.SINGLE : request.itemType())
                 .comboKind(request.itemType() == MenuItemType.COMBO ? request.comboKind() : null)
                 .build();
+        item.updateTaxOverride(request.itemTaxMode(), request.itemTaxRateBps());
 
         MenuItem saved = menuItemRepository.save(item);
         asyncSyncToVectorDb(saved, category.getName());
-        return buildAdminDetail(saved);
+        return buildManagerDetail(saved);
     }
 
     @Override
     @Transactional
     @CacheEvict(value = "menu", allEntries = true)
-    public MenuItemAdminDetailResponse updateMenuItem(Long id, UpdateMenuItemRequest request) {
+    public MenuItemManagerDetailResponse updateMenuItem(Long id, UpdateMenuItemRequest request) {
         MenuCategory category = getActiveCategory(request.categoryId());
         MenuItem item = getActiveMenuItem(id);
 
@@ -250,6 +252,7 @@ public class MenuServiceImpl implements MenuService {
         );
 
         item.updateType(request.itemType(), request.comboKind());
+        item.updateTaxOverride(request.itemTaxMode(), request.itemTaxRateBps());
 
         if (request.available() != null) {
             if (Boolean.TRUE.equals(request.available())) {
@@ -261,7 +264,7 @@ public class MenuServiceImpl implements MenuService {
 
         MenuItem saved = menuItemRepository.save(item);
         asyncSyncToVectorDb(saved, category.getName());
-        return buildAdminDetail(saved);
+        return buildManagerDetail(saved);
     }
 
     @Override
@@ -275,14 +278,14 @@ public class MenuServiceImpl implements MenuService {
     }
 
     @Override
-    public MenuItemAdminDetailResponse getMenuItemAdminDetail(Long id) {
-        return buildAdminDetail(getActiveMenuItem(id));
+    public MenuItemManagerDetailResponse getMenuItemManagerDetail(Long id) {
+        return buildManagerDetail(getActiveMenuItem(id));
     }
 
     @Override
     @Transactional
     @CacheEvict(value = "menu", allEntries = true)
-    public MenuItemAdminDetailResponse upsertFixedComboConfig(Long comboItemId, UpsertFixedComboRequest request) {
+    public MenuItemManagerDetailResponse upsertFixedComboConfig(Long comboItemId, UpsertFixedComboRequest request) {
         MenuItem combo = getActiveMenuItem(comboItemId);
         ensureComboKind(combo, ComboKind.FIXED);
 
@@ -300,13 +303,13 @@ public class MenuServiceImpl implements MenuService {
                 .toList();
         comboFixedComponentRepository.saveAll(components);
 
-        return buildAdminDetail(combo);
+        return buildManagerDetail(combo);
     }
 
     @Override
     @Transactional
     @CacheEvict(value = "menu", allEntries = true)
-    public MenuItemAdminDetailResponse upsertPickComboConfig(Long comboItemId, UpsertPickComboRequest request) {
+    public MenuItemManagerDetailResponse upsertPickComboConfig(Long comboItemId, UpsertPickComboRequest request) {
         MenuItem combo = getActiveMenuItem(comboItemId);
         ensureComboKind(combo, ComboKind.PICK);
 
@@ -349,7 +352,7 @@ public class MenuServiceImpl implements MenuService {
         }
         comboPickSlotItemRepository.saveAll(itemsToSave);
 
-        return buildAdminDetail(combo);
+        return buildManagerDetail(combo);
     }
 
     @Override
@@ -412,21 +415,21 @@ public class MenuServiceImpl implements MenuService {
         }
     }
 
-    private MenuItemAdminDetailResponse buildAdminDetail(MenuItem item) {
-        MenuItemAdminDetailResponse base = MenuItemAdminDetailResponse.fromBase(item);
+    private MenuItemManagerDetailResponse buildManagerDetail(MenuItem item) {
+        MenuItemManagerDetailResponse base = MenuItemManagerDetailResponse.fromBase(item);
         if (item.getItemType() != MenuItemType.COMBO || item.getComboKind() == null) {
             return base;
         }
 
         if (item.getComboKind() == ComboKind.FIXED) {
-            List<MenuItemAdminDetailResponse.FixedComponent> components = comboFixedComponentRepository
+            List<MenuItemManagerDetailResponse.FixedComponent> components = comboFixedComponentRepository
                     .findAllByComboItemIdOrderByIdAsc(item.getId()).stream()
-                    .map(component -> MenuItemAdminDetailResponse.FixedComponent.builder()
+                    .map(component -> MenuItemManagerDetailResponse.FixedComponent.builder()
                             .menuItemId(component.getComponentItemId())
                             .quantity(component.getQuantity())
                             .build())
                     .toList();
-            return MenuItemAdminDetailResponse.builder()
+            return MenuItemManagerDetailResponse.builder()
                     .id(base.getId())
                     .categoryId(base.getCategoryId())
                     .name(base.getName())
@@ -440,7 +443,7 @@ public class MenuServiceImpl implements MenuService {
                     .updatedAt(base.getUpdatedAt())
                     .itemType(base.getItemType())
                     .comboKind(base.getComboKind())
-                    .fixedCombo(MenuItemAdminDetailResponse.FixedCombo.builder().components(components).build())
+                    .fixedCombo(MenuItemManagerDetailResponse.FixedCombo.builder().components(components).build())
                     .build();
         }
 
@@ -454,8 +457,8 @@ public class MenuServiceImpl implements MenuService {
                         Collectors.mapping(ComboPickSlotItem::getMenuItemId, Collectors.toList())
                 ));
 
-        List<MenuItemAdminDetailResponse.PickSlot> slotResponses = slots.stream()
-                .map(slot -> MenuItemAdminDetailResponse.PickSlot.builder()
+        List<MenuItemManagerDetailResponse.PickSlot> slotResponses = slots.stream()
+                .map(slot -> MenuItemManagerDetailResponse.PickSlot.builder()
                         .id(slot.getId())
                         .name(slot.getName())
                         .minSelect(slot.getMinSelect())
@@ -465,7 +468,7 @@ public class MenuServiceImpl implements MenuService {
                         .build())
                 .toList();
 
-        return MenuItemAdminDetailResponse.builder()
+        return MenuItemManagerDetailResponse.builder()
                 .id(base.getId())
                 .categoryId(base.getCategoryId())
                 .name(base.getName())
@@ -479,7 +482,7 @@ public class MenuServiceImpl implements MenuService {
                 .updatedAt(base.getUpdatedAt())
                 .itemType(base.getItemType())
                 .comboKind(base.getComboKind())
-                .pickCombo(MenuItemAdminDetailResponse.PickCombo.builder().slots(slotResponses).build())
+                .pickCombo(MenuItemManagerDetailResponse.PickCombo.builder().slots(slotResponses).build())
                 .build();
     }
 
@@ -545,7 +548,7 @@ public class MenuServiceImpl implements MenuService {
                         item.getId().intValue(),
                         item.getName(),
                         item.getDescription(),
-                        item.getPrice() != null ? item.getPrice().doubleValue() : 0.0,
+                        item.getPrice() != null ? item.getPrice().toBigDecimal() : BigDecimal.ZERO,
                         categoryName,
                         tags
                 );
@@ -666,7 +669,7 @@ public class MenuServiceImpl implements MenuService {
     // ========================== Cook Time Suggestion ==========================
 
     @Override
-    public iuh.fit.se.menu.api.dto.admin.CookTimeSuggestionResponse getSuggestedCookTime(Long menuItemId) {
+    public CookTimeSuggestionResponse getSuggestedCookTime(Long menuItemId) {
         MenuItem menuItem = getActiveMenuItem(menuItemId);
 
         List<iuh.fit.se.kitchen.domain.KitchenTask> recentTasks = kitchenTaskRepository
@@ -679,7 +682,7 @@ public class MenuServiceImpl implements MenuService {
                 .toList();
 
         if (actualSeconds.isEmpty()) {
-            return new iuh.fit.se.menu.api.dto.admin.CookTimeSuggestionResponse(
+            return new CookTimeSuggestionResponse(
                     menuItemId,
                     menuItem.getCookTime(),
                     null,
@@ -697,7 +700,7 @@ public class MenuServiceImpl implements MenuService {
         double avgSeconds = filteredSeconds.stream().mapToInt(Integer::intValue).average().orElse(0.0);
         int suggestedMinutes = Math.max(1, (int) Math.round(avgSeconds / 60.0));
 
-        return new iuh.fit.se.menu.api.dto.admin.CookTimeSuggestionResponse(
+        return new CookTimeSuggestionResponse(
                 menuItemId,
                 menuItem.getCookTime(),
                 suggestedMinutes,

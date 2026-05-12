@@ -1,6 +1,11 @@
 package iuh.fit.se.menu.domain;
 
 import jakarta.persistence.Column;
+import jakarta.persistence.Embedded;
+import jakarta.persistence.AttributeOverride;
+import jakarta.persistence.AttributeOverrides;
+import iuh.fit.se.shared.domain.Money;
+import iuh.fit.se.shared.domain.TaxMode;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -41,8 +46,11 @@ public class MenuItem {
     @Column(name = "description")
     private String description;
 
-    @Column(name = "price", nullable = false)
-    private BigDecimal price;
+    @Embedded
+    @AttributeOverrides({
+        @AttributeOverride(name = "vndAmount", column = @Column(name = "price_vnd", nullable = false))
+    })
+    private Money price;
 
     @Enumerated(EnumType.STRING)
     @JdbcType(PostgreSQLEnumJdbcType.class)
@@ -68,7 +76,12 @@ public class MenuItem {
     @Builder.Default
     private boolean available = true;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "item_tax_mode", length = 20)
+    private TaxMode itemTaxMode;
 
+    @Column(name = "item_tax_rate_bps")
+    private Integer itemTaxRateBps;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
@@ -102,7 +115,7 @@ public class MenuItem {
         this.categoryId = categoryId;
         this.name = name;
         this.description = description;
-        this.price = price;
+        this.price = Money.of(price);
         this.cookTime = cookTime;
         this.imageUrl = imageUrl;
     }
@@ -142,5 +155,10 @@ public class MenuItem {
 
     public void updateCookTime(Integer newCookTime) {
         this.cookTime = newCookTime;
+    }
+
+    public void updateTaxOverride(TaxMode taxMode, Integer taxRateBps) {
+        this.itemTaxMode = taxMode;
+        this.itemTaxRateBps = (taxRateBps != null) ? Math.max(0, taxRateBps) : null;
     }
 }

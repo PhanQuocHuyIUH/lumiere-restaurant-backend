@@ -1,4 +1,4 @@
-package iuh.fit.se.menu.api.dto.admin;
+package iuh.fit.se.menu.api.dto.manager;
 
 import java.time.Instant;
 
@@ -10,3 +10,4 @@ public record CookTimeSuggestionResponse(
         Instant lastUpdatedAt
 ) {
 }
+

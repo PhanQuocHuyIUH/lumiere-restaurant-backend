@@ -1,4 +1,4 @@
-package iuh.fit.se.menu.api.dto.admin;
+package iuh.fit.se.menu.api.dto.manager;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
@@ -32,4 +32,5 @@ public record UpsertPickComboRequest(
     ) {
     }
 }
+
 

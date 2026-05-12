@@ -2,6 +2,11 @@ package iuh.fit.se.billing.domain;
 
 import iuh.fit.se.shared.exception.DomainException;
 import jakarta.persistence.Column;
+import jakarta.persistence.Embedded;
+import jakarta.persistence.AttributeOverride;
+import jakarta.persistence.AttributeOverrides;
+import iuh.fit.se.shared.domain.Money;
+import iuh.fit.se.shared.domain.TaxMode;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -41,8 +46,32 @@ public class Payment {
     @Column(name = "shift_id")
     private Long shiftId;
 
-    @Column(name = "amount", nullable = false)
-    private BigDecimal amount;
+    @Embedded
+    @AttributeOverrides({
+        @AttributeOverride(name = "vndAmount", column = @Column(name = "amount_vnd", nullable = false))
+    })
+    private Money amount;
+
+    @Embedded
+    @AttributeOverrides({
+        @AttributeOverride(name = "vndAmount", column = @Column(name = "subtotal_amount_vnd", nullable = false))
+    })
+    private Money subtotalAmount;
+
+    @Embedded
+    @AttributeOverrides({
+        @AttributeOverride(name = "vndAmount", column = @Column(name = "tax_amount_vnd", nullable = false))
+    })
+    private Money taxAmount;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "tax_mode", nullable = false)
+    @Builder.Default
+    private TaxMode taxMode = TaxMode.NO_TAX;
+
+    @Column(name = "tax_rate_bps", nullable = false)
+    @Builder.Default
+    private Integer taxRateBps = 0;
 
     @Enumerated(EnumType.STRING)
     @JdbcType(PostgreSQLEnumJdbcType.class)
@@ -114,8 +143,20 @@ public class Payment {
         if (this.status == null) {
             this.status = PaymentStatus.PENDING;
         }
-        if (this.amount == null || this.amount.compareTo(BigDecimal.ZERO) <= 0) {
+        if (this.amount == null || this.amount.toLong() <= 0L) {
             throw new DomainException("Payment amount must be greater than zero");
+        }
+        if (this.subtotalAmount == null) {
+            this.subtotalAmount = this.amount;
+        }
+        if (this.taxAmount == null) {
+            this.taxAmount = Money.ofVnd(0L);
+        }
+        if (this.taxMode == null) {
+            this.taxMode = TaxMode.NO_TAX;
+        }
+        if (this.taxRateBps == null) {
+            this.taxRateBps = 0;
         }
     }
 
@@ -123,6 +164,10 @@ public class Payment {
             Long orderId,
             Long shiftId,
             BigDecimal amount,
+            BigDecimal subtotalAmount,
+            BigDecimal taxAmount,
+            TaxMode taxMode,
+            Integer taxRateBps,
             PaymentMethod paymentMethod,
             PaymentProvider provider,
             Long cashierId
@@ -130,7 +175,11 @@ public class Payment {
         return Payment.builder()
                 .orderId(orderId)
             .shiftId(shiftId)
-                .amount(amount)
+                .amount(Money.of(amount))
+                .subtotalAmount(Money.of(subtotalAmount))
+                .taxAmount(Money.of(taxAmount))
+                .taxMode(taxMode == null ? TaxMode.NO_TAX : taxMode)
+                .taxRateBps(taxRateBps == null ? 0 : Math.max(0, taxRateBps))
                 .paymentMethod(paymentMethod)
                 .provider(provider)
                 .status(PaymentStatus.PENDING)

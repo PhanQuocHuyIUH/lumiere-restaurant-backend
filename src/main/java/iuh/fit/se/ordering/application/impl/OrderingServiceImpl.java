@@ -2,7 +2,7 @@ package iuh.fit.se.ordering.application.impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import iuh.fit.se.menu.api.dto.admin.MenuItemAdminDetailResponse;
+import iuh.fit.se.menu.api.dto.manager.MenuItemManagerDetailResponse;
 import iuh.fit.se.menu.application.MenuItemDTO;
 import iuh.fit.se.menu.application.MenuService;
 import iuh.fit.se.table.application.TableDTO;
@@ -19,6 +19,12 @@ import iuh.fit.se.ordering.domain.OrderItemStatus;
 import iuh.fit.se.ordering.domain.OrderRevision;
 import iuh.fit.se.ordering.domain.OrderStatus;
 import iuh.fit.se.ordering.domain.RevisionSource;
+import iuh.fit.se.shared.domain.Money;
+import iuh.fit.se.shared.domain.PricingSnapshot;
+import iuh.fit.se.shared.domain.TaxMode;
+import iuh.fit.se.shared.tax.application.TaxConfigService;
+import iuh.fit.se.shared.tax.application.TaxConfigService.TaxConfigDto;
+import iuh.fit.se.shared.util.PricingEngine;
 import iuh.fit.se.ordering.infrastructure.OrderItemRepository;
 import iuh.fit.se.ordering.infrastructure.OrderRepository;
 import iuh.fit.se.ordering.infrastructure.OrderRevisionRepository;
@@ -38,8 +44,6 @@ import iuh.fit.se.shared.security.JwtPrincipal;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
-import java.math.BigDecimal;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
@@ -47,9 +51,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Supplier;
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.http.HttpStatus;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.security.authentication.InsufficientAuthenticationException;
@@ -90,6 +92,8 @@ public class OrderingServiceImpl implements OrderingService {
     private final ApplicationEventPublisher eventPublisher;
     private final ObjectMapper objectMapper;
     private final SimpMessagingTemplate messagingTemplate;
+    private final PricingEngine pricingEngine;
+    private final TaxConfigService taxConfigService;
 
     public OrderingServiceImpl(
             OrderRepository orderRepository,
@@ -100,7 +104,9 @@ public class OrderingServiceImpl implements OrderingService {
             AiClient aiClient,
             ApplicationEventPublisher eventPublisher,
             ObjectMapper objectMapper,
-            SimpMessagingTemplate messagingTemplate
+            SimpMessagingTemplate messagingTemplate,
+            PricingEngine pricingEngine,
+            TaxConfigService taxConfigService
     ) {
         this.orderRepository = orderRepository;
         this.orderRevisionRepository = orderRevisionRepository;
@@ -111,6 +117,8 @@ public class OrderingServiceImpl implements OrderingService {
         this.eventPublisher = eventPublisher;
         this.objectMapper = objectMapper;
         this.messagingTemplate = messagingTemplate;
+        this.pricingEngine = pricingEngine;
+        this.taxConfigService = taxConfigService;
     }
 
     @Override
@@ -215,6 +223,7 @@ public class OrderingServiceImpl implements OrderingService {
 
             if (order.getStatus() == OrderStatus.CREATED) {
                 order.confirm(staffId);
+                applyPricingForConfirmation(order, staffId);
                 orderRepository.save(order);
             } else if (!REVISION_ALLOWED_STATUSES.contains(order.getStatus())) {
                 throw new DomainException("Cannot confirm revision for order in status: " + order.getStatus());
@@ -645,7 +654,9 @@ public class OrderingServiceImpl implements OrderingService {
                     menuItemId,
                     quantity,
                     menuItem.price(),
-                    normalizeOptionalText(note)
+                    normalizeOptionalText(note),
+                    menuItem.itemTaxMode(),
+                    menuItem.itemTaxRateBps()
             ));
         }
 
@@ -666,7 +677,7 @@ public class OrderingServiceImpl implements OrderingService {
             Integer comboQuantity,
             String note
     ) {
-        var detail = menuService.getMenuItemAdminDetail(comboItemId);
+        var detail = menuService.getMenuItemManagerDetail(comboItemId);
         if (detail.getFixedCombo() == null || detail.getFixedCombo().getComponents() == null || detail.getFixedCombo().getComponents().isEmpty()) {
             throw new DomainException("Fixed combo is missing components: " + comboItemId);
         }
@@ -682,7 +693,9 @@ public class OrderingServiceImpl implements OrderingService {
                 comboQuantity,
                 detail.getPrice(),
                 snapshot,
-                normalizeOptionalText(note)
+                normalizeOptionalText(note),
+                detail.getItemTaxMode(),
+                detail.getItemTaxRateBps()
         );
         parent = orderItemRepository.save(parent);
 
@@ -714,13 +727,13 @@ public class OrderingServiceImpl implements OrderingService {
             throw new DomainException("comboSelection is required for pick combo: " + comboItemId);
         }
 
-        var detail = menuService.getMenuItemAdminDetail(comboItemId);
+        var detail = menuService.getMenuItemManagerDetail(comboItemId);
         if (detail.getPickCombo() == null || detail.getPickCombo().getSlots() == null || detail.getPickCombo().getSlots().isEmpty()) {
             throw new DomainException("Pick combo is missing slots: " + comboItemId);
         }
 
         // validate slots exist and selections satisfy min/max + allowed items
-        Map<Long, MenuItemAdminDetailResponse.PickSlot> slotsById = new HashMap<>();
+        Map<Long, MenuItemManagerDetailResponse.PickSlot> slotsById = new HashMap<>();
         for (var slot : detail.getPickCombo().getSlots()) {
             slotsById.put(slot.getId(), slot);
         }
@@ -732,7 +745,7 @@ public class OrderingServiceImpl implements OrderingService {
                 throw new DomainException("Duplicate slot selection: " + selectedSlot.slotId());
             }
 
-            MenuItemAdminDetailResponse.PickSlot slot = slotsById.get(selectedSlot.slotId());
+            MenuItemManagerDetailResponse.PickSlot slot = slotsById.get(selectedSlot.slotId());
             if (slot == null) {
                 throw new DomainException("Invalid slotId for combo: " + selectedSlot.slotId());
             }
@@ -779,7 +792,9 @@ public class OrderingServiceImpl implements OrderingService {
                 comboQuantity,
                 detail.getPrice(),
                 snapshot,
-                normalizeOptionalText(note)
+                normalizeOptionalText(note),
+                detail.getItemTaxMode(),
+                detail.getItemTaxRateBps()
         );
         parent = orderItemRepository.save(parent);
 
@@ -799,9 +814,57 @@ public class OrderingServiceImpl implements OrderingService {
     }
 
     private void refreshOrderTotal(Order order, Long revisionId) {
-        BigDecimal total = orderItemRepository.sumSubtotalByRevisionId(revisionId);
-        order.updateTotalAmount(total);
+        List<OrderItem> items = orderItemRepository.findAllByRevisionIdOrderByIdAsc(revisionId);
+        TaxConfigDto globalConfig = taxConfigService.getActive();
+
+        long netTotal = 0L;
+        long taxTotal = 0L;
+        long grossTotal = 0L;
+        List<OrderItem> billableItems = new ArrayList<>();
+
+        for (OrderItem item : items) {
+            if (!item.isBillable()) continue;
+
+            TaxMode effectiveMode = item.getUnitTaxMode() != null
+                    ? item.getUnitTaxMode() : globalConfig.taxMode();
+            int effectiveRate = item.getUnitTaxRateBps() != null
+                    ? item.getUnitTaxRateBps() : globalConfig.taxRateBps();
+
+            // Snapshot on gross subtotal (unitPrice × qty) to avoid per-unit rounding drift
+            long grossUnitLong = item.getUnitPrice().toLong();
+            Money grossSubtotal = Money.ofVnd(grossUnitLong * item.getQuantity());
+            PricingSnapshot snap = pricingEngine.snapshot(grossSubtotal, effectiveMode, effectiveRate);
+            item.applyTaxBreakdown(snap.subtotalAmount(), snap.taxAmount(), effectiveMode, effectiveRate);
+
+            netTotal   += snap.subtotalAmount().toLong();   // snap already covers qty
+            taxTotal   += snap.taxAmount().toLong();
+            grossTotal += grossSubtotal.toLong();
+            billableItems.add(item);
+        }
+
+        orderItemRepository.saveAll(billableItems);
+
+        order.applyPricingSnapshot(
+                Money.ofVnd(netTotal),
+                Money.ofVnd(taxTotal),
+                Money.ofVnd(grossTotal),
+                globalConfig.taxMode(),
+                globalConfig.taxRateBps(),
+                order.getTaxSnapshotById()
+        );
         orderRepository.save(order);
+    }
+
+    private void applyPricingForConfirmation(Order order, Long staffId) {
+        TaxConfigDto config = taxConfigService.getActive();
+        order.applyPricingSnapshot(
+                order.getSubtotalAmount(),
+                order.getTaxAmount(),
+                order.getTotalAmount(),
+                config.taxMode(),
+                config.taxRateBps(),
+                staffId
+        );
     }
 
     private void ensureCanAddRevision(Order order) {

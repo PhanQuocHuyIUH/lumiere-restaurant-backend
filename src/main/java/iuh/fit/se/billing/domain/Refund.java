@@ -2,6 +2,10 @@ package iuh.fit.se.billing.domain;
 
 import iuh.fit.se.shared.exception.InvalidStateTransitionException;
 import jakarta.persistence.Column;
+import jakarta.persistence.Embedded;
+import jakarta.persistence.AttributeOverride;
+import jakarta.persistence.AttributeOverrides;
+import iuh.fit.se.shared.domain.Money;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -39,8 +43,11 @@ public class Refund {
     @Column(name = "payment_id", nullable = false)
     private Long paymentId;
 
-    @Column(name = "amount", nullable = false)
-    private BigDecimal amount;
+    @Embedded
+    @AttributeOverrides({
+        @AttributeOverride(name = "vndAmount", column = @Column(name = "amount_vnd", nullable = false))
+    })
+    private Money amount;
 
     @Column(name = "reason", columnDefinition = "text")
     private String reason;
@@ -81,7 +88,7 @@ public class Refund {
         }
     }
 
-    public static Refund createInitiated(
+        public static Refund createInitiated(
             Long paymentId,
             BigDecimal amount,
             String reason,
@@ -89,7 +96,7 @@ public class Refund {
     ) {
         return Refund.builder()
                 .paymentId(paymentId)
-                .amount(amount)
+                .amount(Money.of(amount))
                 .reason(reason)
                 .requestedBy(requestedBy)
                 .status(RefundStatus.INITIATED)

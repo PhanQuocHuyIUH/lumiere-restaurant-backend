@@ -1,6 +1,7 @@
 package iuh.fit.se.shared.handler;
 
 import iuh.fit.se.shared.exception.DomainException;
+import iuh.fit.se.shared.exception.ForbiddenException;
 import iuh.fit.se.shared.exception.IdempotencyConflictException;
 import iuh.fit.se.shared.exception.InvalidStateTransitionException;
 import iuh.fit.se.shared.exception.ResourceNotFoundException;
@@ -60,6 +61,11 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(AuthenticationException.class)
     public ResponseEntity<ApiResponse<Void>> handleAuthentication(AuthenticationException ex) {
         return buildError(HttpStatus.UNAUTHORIZED, "Unauthorized");
+    }
+
+    @ExceptionHandler(ForbiddenException.class)
+    public ResponseEntity<ApiResponse<Void>> handleForbidden(ForbiddenException ex) {
+        return buildError(HttpStatus.FORBIDDEN, ex.getMessage());
     }
 
     @ExceptionHandler(AccessDeniedException.class)

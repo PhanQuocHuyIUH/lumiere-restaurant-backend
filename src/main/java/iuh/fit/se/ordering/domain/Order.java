@@ -1,7 +1,12 @@
 package iuh.fit.se.ordering.domain;
 
-import iuh.fit.se.shared.exception.DomainException;
 import jakarta.persistence.Column;
+import jakarta.persistence.Embedded;
+import jakarta.persistence.AttributeOverride;
+import jakarta.persistence.AttributeOverrides;
+import iuh.fit.se.shared.domain.Money;
+import iuh.fit.se.shared.domain.TaxMode;
+import iuh.fit.se.shared.util.MoneyHelper;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -41,9 +46,45 @@ public class Order {
     @Builder.Default
     private OrderStatus status = OrderStatus.CREATED;
 
-    @Column(name = "total_amount", nullable = false)
+    @Embedded
+    @AttributeOverrides({
+        @AttributeOverride(name = "vndAmount", column = @Column(name = "total_amount_vnd", nullable = false))
+    })
     @Builder.Default
-    private BigDecimal totalAmount = BigDecimal.ZERO;
+    private Money totalAmount = Money.ofVnd(0L);
+
+    @Embedded
+    @AttributeOverrides({
+        @AttributeOverride(name = "vndAmount", column = @Column(name = "subtotal_amount_vnd", nullable = false))
+    })
+    @Builder.Default
+    private Money subtotalAmount = Money.ofVnd(0L);
+
+    @Embedded
+    @AttributeOverrides({
+        @AttributeOverride(name = "vndAmount", column = @Column(name = "tax_amount_vnd", nullable = false))
+    })
+    @Builder.Default
+    private Money taxAmount = Money.ofVnd(0L);
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "tax_mode", nullable = false)
+    @Builder.Default
+    private TaxMode taxMode = TaxMode.NO_TAX;
+
+    @Column(name = "tax_rate_bps", nullable = false)
+    @Builder.Default
+    private Integer taxRateBps = 0;
+
+    @Column(name = "tax_snapshot_at")
+    private Instant taxSnapshotAt;
+
+    @Column(name = "tax_snapshot_by")
+    private Long taxSnapshotById;
+
+    @Column(name = "tax_snapshot_version", nullable = false)
+    @Builder.Default
+    private Integer taxSnapshotVersion = 1;
 
     @Column(name = "confirmed_by")
     private Long confirmedById;
@@ -85,16 +126,71 @@ public class Order {
             this.status = OrderStatus.CREATED;
         }
         if (this.totalAmount == null) {
-            this.totalAmount = BigDecimal.ZERO;
+            this.totalAmount = Money.ofVnd(0L);
+        }
+        if (this.subtotalAmount == null) {
+            this.subtotalAmount = this.totalAmount;
+        }
+        if (this.taxAmount == null) {
+            this.taxAmount = Money.ofVnd(0L);
+        }
+        if (this.taxMode == null) {
+            this.taxMode = TaxMode.NO_TAX;
+        }
+        if (this.taxRateBps == null) {
+            this.taxRateBps = 0;
+        }
+        if (this.taxSnapshotVersion == null || this.taxSnapshotVersion < 1) {
+            this.taxSnapshotVersion = 1;
         }
     }
 
-    public void updateTotalAmount(BigDecimal totalAmount) {
-        BigDecimal normalized = totalAmount == null ? BigDecimal.ZERO : totalAmount;
-        if (normalized.compareTo(BigDecimal.ZERO) < 0) {
-            throw new DomainException("Order total amount cannot be negative");
+    public void updateTotalAmount(Money totalAmount) {
+        if (totalAmount == null) {
+            totalAmount = Money.ofVnd(0L);
         }
-        this.totalAmount = normalized;
+        MoneyHelper.validateMoneyAmount(totalAmount.toLong());
+        this.totalAmount = totalAmount;
+    }
+
+    public void updateTotalAmount(BigDecimal totalAmount) {
+        Money m = Money.of(totalAmount);
+        updateTotalAmount(m);
+    }
+
+    public void applyPricingSnapshot(
+            Money subtotalAmount,
+            Money taxAmount,
+            Money totalAmount,
+            TaxMode taxMode,
+            Integer taxRateBps,
+            Long snapshotById
+    ) {
+        Money safeSubtotal = subtotalAmount == null ? Money.ofVnd(0L) : subtotalAmount;
+        Money safeTax = taxAmount == null ? Money.ofVnd(0L) : taxAmount;
+        Money safeTotal = totalAmount == null ? Money.ofVnd(0L) : totalAmount;
+
+        MoneyHelper.validateMoneyAmount(safeSubtotal.toLong());
+        MoneyHelper.validateMoneyAmount(safeTax.toLong());
+        MoneyHelper.validateMoneyAmount(safeTotal.toLong());
+
+        this.subtotalAmount = safeSubtotal;
+        this.taxAmount = safeTax;
+        this.totalAmount = safeTotal;
+        this.taxMode = taxMode == null ? TaxMode.NO_TAX : taxMode;
+        this.taxRateBps = taxRateBps == null ? 0 : Math.max(0, taxRateBps);
+
+        if (snapshotById != null && this.taxSnapshotAt == null) {
+            this.taxSnapshotAt = Instant.now();
+            this.taxSnapshotById = snapshotById;
+            if (this.taxSnapshotVersion == null || this.taxSnapshotVersion < 1) {
+                this.taxSnapshotVersion = 1;
+            }
+        }
+    }
+
+    public boolean hasTaxSnapshot() {
+        return this.taxSnapshotAt != null;
     }
 
     public void updateNote(String note) {

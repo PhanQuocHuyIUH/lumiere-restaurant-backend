@@ -3,10 +3,8 @@ package iuh.fit.se.billing.application.impl;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import iuh.fit.se.billing.api.dto.PaymentResponse;
 import iuh.fit.se.shared.exception.IdempotencyConflictException;
-import iuh.fit.se.shared.util.IdempotencyUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.RedisTemplate;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
 import java.util.concurrent.TimeUnit;

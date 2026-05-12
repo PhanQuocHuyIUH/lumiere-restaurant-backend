@@ -25,7 +25,7 @@ public record MenuItemExportRow(
                 item.getId(),
                 item.getName(),
                 item.getDescription(),
-                item.getPrice(),
+            item.getPrice() == null ? BigDecimal.ZERO : item.getPrice().toBigDecimal(),
                 categoryName,
                 item.getItemType(),
                 item.getCookTime(),

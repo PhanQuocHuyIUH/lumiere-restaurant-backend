@@ -18,21 +18,21 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Admin API for AI model management.
+ * Manager API for AI model management.
  *
  * Frontend integration (Phase 4):
- *  1. POST /admin/ai/retrain        → receive HTTP 202 + { jobId, status:"PROCESSING" }
- *  2. Poll GET /admin/ai/jobs/{jobId} every 5s until status = COMPLETED or FAILED
+ *  1. POST /manager/ai/retrain        → receive HTTP 202 + { jobId, status:"PROCESSING" }
+ *  2. Poll GET /manager/ai/jobs/{jobId} every 5s until status = COMPLETED or FAILED
  *  3. Show spinner while PROCESSING; toast on completion
  */
 @RestController
-@RequestMapping("/admin/ai")
+@RequestMapping("/manager/ai")
 @PreAuthorize("hasRole('MANAGER')")
-public class AdminAiController {
+public class ManagerAiController {
 
     private final AiClient aiClient;
 
-    public AdminAiController(AiClient aiClient) {
+    public ManagerAiController(AiClient aiClient) {
         this.aiClient = aiClient;
     }
 

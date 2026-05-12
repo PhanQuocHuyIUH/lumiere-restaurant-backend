@@ -42,26 +42,26 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
     );
 
         @Query("""
-                select coalesce(sum(p.amount), 0)
+                select coalesce(sum(p.amount.vndAmount), 0)
                 from Payment p
                 where p.shiftId = :shiftId
                     and p.status = :status
                     and p.paymentMethod = :paymentMethod
                 """)
-        java.math.BigDecimal sumAmountByShiftIdAndStatusAndPaymentMethod(
+        Long sumAmountByShiftIdAndStatusAndPaymentMethod(
                         @Param("shiftId") Long shiftId,
                         @Param("status") PaymentStatus status,
                         @Param("paymentMethod") PaymentMethod paymentMethod
         );
 
         @Query("""
-                select coalesce(sum(p.amount), 0)
+                select coalesce(sum(p.amount.vndAmount), 0)
                 from Payment p
                 where p.shiftId = :shiftId
                     and p.status = :status
                     and p.paymentMethod in :paymentMethods
                 """)
-        java.math.BigDecimal sumAmountByShiftIdAndStatusAndPaymentMethodIn(
+            Long sumAmountByShiftIdAndStatusAndPaymentMethodIn(
                         @Param("shiftId") Long shiftId,
                         @Param("status") PaymentStatus status,
                         @Param("paymentMethods") Collection<PaymentMethod> paymentMethods

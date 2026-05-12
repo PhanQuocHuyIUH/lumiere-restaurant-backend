@@ -1,4 +1,4 @@
-package iuh.fit.se.menu.api.dto.admin;
+package iuh.fit.se.menu.api.dto.manager;
 
 import iuh.fit.se.menu.domain.MenuCategory;
 import java.time.Instant;
@@ -27,3 +27,4 @@ public class MenuCategoryDetailResponse {
                 .build();
     }
 }
+

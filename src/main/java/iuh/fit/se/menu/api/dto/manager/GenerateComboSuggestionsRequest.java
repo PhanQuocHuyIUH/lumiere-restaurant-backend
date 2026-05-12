@@ -1,4 +1,4 @@
-package iuh.fit.se.menu.api.dto.admin;
+package iuh.fit.se.menu.api.dto.manager;
 
 import iuh.fit.se.shared.ai.client.dto.ComboGenerateRequest;
 import jakarta.validation.constraints.DecimalMax;
@@ -27,3 +27,4 @@ public record GenerateComboSuggestionsRequest(
         return new ComboGenerateRequest(analyzeDays, minSupport, minConfidence);
     }
 }
+

@@ -1,4 +1,4 @@
-package iuh.fit.se.menu.api.dto.admin;
+package iuh.fit.se.menu.api.dto.manager;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotEmpty;
@@ -10,3 +10,4 @@ public record UpsertRecipeRequest(
         List<RecipeItemRequest> items
 ) {
 }
+

@@ -19,13 +19,13 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/admin/tables")
+@RequestMapping("/manager/tables")
 @PreAuthorize("hasRole('MANAGER')")
-public class AdminTableController {
+public class ManagerTableController {
 
     private final TableService tableService;
 
-    public AdminTableController(TableService tableService) {
+    public ManagerTableController(TableService tableService) {
         this.tableService = tableService;
     }
 

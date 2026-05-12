@@ -3,6 +3,7 @@ package iuh.fit.se.ordering.api.dto;
 import iuh.fit.se.ordering.domain.Order;
 import iuh.fit.se.ordering.domain.OrderItem;
 import iuh.fit.se.ordering.domain.OrderStatus;
+import iuh.fit.se.shared.domain.TaxMode;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
@@ -11,7 +12,12 @@ public record OrderResponse(
         Long id,
         Long tableId,
         OrderStatus status,
+        BigDecimal subtotalAmount,
+        BigDecimal taxAmount,
         BigDecimal totalAmount,
+        TaxMode taxMode,
+        Integer taxRateBps,
+        Instant taxSnapshotAt,
         Long confirmedById,
         Long servedById,
         String note,
@@ -35,7 +41,12 @@ public record OrderResponse(
                 order.getId(),
                 order.getTableId(),
                 order.getStatus(),
-                order.getTotalAmount(),
+                order.getSubtotalAmount() == null ? BigDecimal.ZERO : order.getSubtotalAmount().toBigDecimal(),
+                order.getTaxAmount() == null ? BigDecimal.ZERO : order.getTaxAmount().toBigDecimal(),
+                order.getTotalAmount() == null ? BigDecimal.ZERO : order.getTotalAmount().toBigDecimal(),
+                order.getTaxMode(),
+                order.getTaxRateBps(),
+                order.getTaxSnapshotAt(),
                 order.getConfirmedById(),
                 order.getServedById(),
                 order.getNote(),

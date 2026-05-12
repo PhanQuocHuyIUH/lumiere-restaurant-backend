@@ -171,17 +171,17 @@ public class BillingServiceImpl implements BillingService {
             return new InvoiceItem(name, it.quantity(), it.unitPrice(), it.subtotal());
         }).toList();
 
-        java.math.BigDecimal subtotal = order.items().stream()
+        BigDecimal subtotal = order.items().stream()
             .map(r -> r.subtotal())
-            .reduce(java.math.BigDecimal.ZERO, java.math.BigDecimal::add);
+            .reduce(BigDecimal.ZERO, BigDecimal::add);
 
-        java.math.BigDecimal tax = java.math.BigDecimal.ZERO;
-        java.math.BigDecimal discount = java.math.BigDecimal.ZERO;
+        BigDecimal tax = BigDecimal.ZERO;
+        BigDecimal discount = BigDecimal.ZERO;
 
-        java.math.BigDecimal total = order.totalAmount() != null ? order.totalAmount() : subtotal;
+        BigDecimal total = order.totalAmount() != null ? order.totalAmount() : subtotal;
 
         String paymentMethod = paymentOpt.map(p -> p.getPaymentMethod() == null ? "" : p.getPaymentMethod().name()).orElse("");
-        java.time.Instant paymentTime = paymentOpt.map(p -> p.getPaidAt()).orElse(order.paidAt());
+        Instant paymentTime = paymentOpt.map(p -> p.getPaidAt()).orElse(order.paidAt());
         Long cashierId = paymentOpt.map(p -> p.getCashierId()).orElse(order.confirmedById());
 
         String invoiceNumber = String.format("INV-%d-%d", orderId, System.currentTimeMillis());
@@ -274,7 +274,13 @@ public class BillingServiceImpl implements BillingService {
             webhook.markProcessed();
             paymentWebhookRepository.save(webhook);
 
-            eventPublisher.publishEvent(new PaymentSuccessEvent(payment.getId(), payment.getOrderId(), payment.getAmount()));
+                eventPublisher.publishEvent(new PaymentSuccessEvent(
+                    payment.getId(),
+                    payment.getOrderId(),
+                    payment.getSubtotalAmount() == null ? BigDecimal.ZERO : payment.getSubtotalAmount().toBigDecimal(),
+                    payment.getTaxAmount() == null ? BigDecimal.ZERO : payment.getTaxAmount().toBigDecimal(),
+                    payment.getAmount() == null ? BigDecimal.ZERO : payment.getAmount().toBigDecimal()
+                ));
             return new BillingWebhookResult(true, true, processed.responseCode(), processed.message(), PaymentResponse.from(payment));
         }
 
@@ -294,7 +300,7 @@ public class BillingServiceImpl implements BillingService {
                 false,
                 processed.responseCode(),
                 processed.message(),
-                PaymentResponse.from(payment)
+            PaymentResponse.from(payment)
         );
     }
 
@@ -319,16 +325,18 @@ public class BillingServiceImpl implements BillingService {
     @Override
     @Transactional(readOnly = true)
     public ShiftPaymentSummary getShiftPaymentSummary(Long shiftId) {
-        BigDecimal cashRevenue = paymentRepository.sumAmountByShiftIdAndStatusAndPaymentMethod(
-                shiftId,
-                PaymentStatus.SUCCESS,
-                PaymentMethod.CASH
+        Long cashRevenueLong = paymentRepository.sumAmountByShiftIdAndStatusAndPaymentMethod(
+            shiftId,
+            PaymentStatus.SUCCESS,
+            PaymentMethod.CASH
         );
-        BigDecimal transferRevenue = paymentRepository.sumAmountByShiftIdAndStatusAndPaymentMethodIn(
-                shiftId,
-                PaymentStatus.SUCCESS,
-                Set.of(PaymentMethod.QR_CODE, PaymentMethod.VNPAY_ATM)
+        Long transferRevenueLong = paymentRepository.sumAmountByShiftIdAndStatusAndPaymentMethodIn(
+            shiftId,
+            PaymentStatus.SUCCESS,
+            Set.of(PaymentMethod.QR_CODE, PaymentMethod.VNPAY_ATM)
         );
+        BigDecimal cashRevenue = BigDecimal.valueOf(cashRevenueLong == null ? 0L : cashRevenueLong);
+        BigDecimal transferRevenue = BigDecimal.valueOf(transferRevenueLong == null ? 0L : transferRevenueLong);
         long totalBills = paymentRepository.countByShiftIdAndStatus(shiftId, PaymentStatus.SUCCESS);
 
         return new ShiftPaymentSummary(shiftId, cashRevenue, transferRevenue, totalBills);
@@ -350,6 +358,10 @@ public class BillingServiceImpl implements BillingService {
                 order.id(),
             request.shiftId(),
                 order.totalAmount(),
+            order.subtotalAmount(),
+            order.taxAmount(),
+            order.taxMode(),
+            order.taxRateBps(),
                 request.paymentMethod(),
                 request.provider(),
                 cashierId
@@ -361,7 +373,7 @@ public class BillingServiceImpl implements BillingService {
                 payment.getId(),
                 payment.getProvider(),
                 TxnType.INITIATE,
-                payment.getAmount(),
+                payment.getAmount() == null ? BigDecimal.ZERO : payment.getAmount().toBigDecimal(),
                 rawRequest
         );
         transaction = paymentTransactionRepository.save(transaction);
@@ -388,7 +400,13 @@ public class BillingServiceImpl implements BillingService {
                     gatewayResult.responseCode(),
                     gatewayResult.responsePayload()
             );
-            eventPublisher.publishEvent(new PaymentSuccessEvent(payment.getId(), payment.getOrderId(), payment.getAmount()));
+                eventPublisher.publishEvent(new PaymentSuccessEvent(
+                    payment.getId(),
+                    payment.getOrderId(),
+                    payment.getSubtotalAmount() == null ? BigDecimal.ZERO : payment.getSubtotalAmount().toBigDecimal(),
+                    payment.getTaxAmount() == null ? BigDecimal.ZERO : payment.getTaxAmount().toBigDecimal(),
+                    payment.getAmount() == null ? BigDecimal.ZERO : payment.getAmount().toBigDecimal()
+                ));
         } else if (gatewayResult.transition() == PaymentTransition.FAILED) {
             payment.markFailed(gatewayResult.responseCode(), gatewayResult.responsePayload());
             eventPublisher.publishEvent(new PaymentFailedEvent(payment.getId(), payment.getOrderId(), gatewayResult.message()));
@@ -419,7 +437,7 @@ public class BillingServiceImpl implements BillingService {
             throw new DomainException("Only successful payment can be refunded");
         }
 
-        if (request.amount().compareTo(payment.getAmount()) > 0) {
+        if (request.amount().compareTo(payment.getAmount() == null ? BigDecimal.ZERO : payment.getAmount().toBigDecimal()) > 0) {
             throw new DomainException("Refund amount cannot exceed payment amount");
         }
 
@@ -441,18 +459,18 @@ public class BillingServiceImpl implements BillingService {
         refund = refundRepository.save(refund);
 
         PaymentTransaction transaction = PaymentTransaction.initiated(
-                payment.getId(),
-                payment.getProvider(),
-                TxnType.REFUND,
-                request.amount(),
-                rawRequest
+            payment.getId(),
+            payment.getProvider(),
+            TxnType.REFUND,
+            request.amount(),
+            rawRequest
         );
         transaction = paymentTransactionRepository.save(transaction);
 
         RefundGatewayResult result = initiateRefund(payment, refund, request);
         if (result.success()) {
             refund.markSuccess(result.providerRefundId(), result.responsePayload());
-            if (request.amount().compareTo(payment.getAmount()) == 0) {
+            if (request.amount().compareTo(payment.getAmount() == null ? BigDecimal.ZERO : payment.getAmount().toBigDecimal()) == 0) {
                 payment.markRefunded(result.responsePayload());
                 payment = paymentRepository.save(payment);
             }
@@ -500,11 +518,11 @@ public class BillingServiceImpl implements BillingService {
             TxnStatus status
     ) {
         PaymentTransaction transaction = PaymentTransaction.initiated(
-                payment.getId(),
-                provider,
-                TxnType.QUERY,
-                payment.getAmount(),
-                processed.normalizedPayload()
+            payment.getId(),
+            provider,
+            TxnType.QUERY,
+            payment.getAmount() == null ? BigDecimal.ZERO : payment.getAmount().toBigDecimal(),
+            processed.normalizedPayload()
         );
 
         if (status == TxnStatus.SUCCESS) {
@@ -591,7 +609,7 @@ public class BillingServiceImpl implements BillingService {
         params.put("vnp_Version", vnpayVersion);
         params.put("vnp_Command", vnpayCommand);
         params.put("vnp_TmnCode", vnpayTmnCode);
-        params.put("vnp_Amount", String.valueOf(toMinorUnits(payment.getAmount())));
+        params.put("vnp_Amount", String.valueOf(toMinorUnits(payment.getAmount() == null ? BigDecimal.ZERO : payment.getAmount().toBigDecimal())));
         params.put("vnp_CurrCode", "VND");
         params.put("vnp_TxnRef", txnRef);
         params.put("vnp_OrderInfo", buildVnpayOrderInfo(payment.getOrderId()));
@@ -639,7 +657,7 @@ public class BillingServiceImpl implements BillingService {
     }
 
     private GatewayActionResult buildVietQrPayment(Payment payment) {
-        String content = "VIETQR|PAY-" + payment.getId() + "|" + payment.getAmount().setScale(0, RoundingMode.HALF_UP).toPlainString();
+        String content = "VIETQR|PAY-" + payment.getId() + "|" + (payment.getAmount() == null ? BigDecimal.ZERO : payment.getAmount().toBigDecimal()).setScale(0, RoundingMode.HALF_UP).toPlainString();
         return new GatewayActionResult(
                 PaymentTransition.PENDING,
                 "VIETQR-" + payment.getId(),
@@ -813,7 +831,7 @@ public class BillingServiceImpl implements BillingService {
 
         try {
             long callbackAmount = Long.parseLong(amountValue.trim());
-            return callbackAmount == toMinorUnits(payment.getAmount());
+            return callbackAmount == toMinorUnits(payment.getAmount() == null ? BigDecimal.ZERO : payment.getAmount().toBigDecimal());
         } catch (NumberFormatException ex) {
             return false;
         }

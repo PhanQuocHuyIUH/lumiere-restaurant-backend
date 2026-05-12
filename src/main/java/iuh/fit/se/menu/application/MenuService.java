@@ -4,18 +4,18 @@ import iuh.fit.se.menu.api.dto.CustomerMenuCategoryResponse;
 import iuh.fit.se.menu.api.dto.MenuCategorySummaryResponse;
 import iuh.fit.se.menu.api.dto.MenuCategoryResponse;
 import iuh.fit.se.menu.api.dto.MenuItemResponse;
-import iuh.fit.se.menu.api.dto.admin.AdminMenuCategoryListItemResponse;
-import iuh.fit.se.menu.api.dto.admin.CookTimeSuggestionResponse;
-import iuh.fit.se.menu.api.dto.admin.CreateMenuCategoryRequest;
-import iuh.fit.se.menu.api.dto.admin.CreateMenuItemRequest;
-import iuh.fit.se.menu.api.dto.admin.MenuCategoryDetailResponse;
-import iuh.fit.se.menu.api.dto.admin.MenuItemAdminDetailResponse;
-import iuh.fit.se.menu.api.dto.admin.RecipeItemResponse;
-import iuh.fit.se.menu.api.dto.admin.UpdateMenuCategoryRequest;
-import iuh.fit.se.menu.api.dto.admin.UpdateMenuItemRequest;
-import iuh.fit.se.menu.api.dto.admin.UpsertFixedComboRequest;
-import iuh.fit.se.menu.api.dto.admin.UpsertPickComboRequest;
-import iuh.fit.se.menu.api.dto.admin.UpsertRecipeRequest;
+import iuh.fit.se.menu.api.dto.manager.ManagerMenuCategoryListItemResponse;
+import iuh.fit.se.menu.api.dto.manager.CookTimeSuggestionResponse;
+import iuh.fit.se.menu.api.dto.manager.CreateMenuCategoryRequest;
+import iuh.fit.se.menu.api.dto.manager.CreateMenuItemRequest;
+import iuh.fit.se.menu.api.dto.manager.MenuCategoryDetailResponse;
+import iuh.fit.se.menu.api.dto.manager.MenuItemManagerDetailResponse;
+import iuh.fit.se.menu.api.dto.manager.RecipeItemResponse;
+import iuh.fit.se.menu.api.dto.manager.UpdateMenuCategoryRequest;
+import iuh.fit.se.menu.api.dto.manager.UpdateMenuItemRequest;
+import iuh.fit.se.menu.api.dto.manager.UpsertFixedComboRequest;
+import iuh.fit.se.menu.api.dto.manager.UpsertPickComboRequest;
+import iuh.fit.se.menu.api.dto.manager.UpsertRecipeRequest;
 import iuh.fit.se.shared.ai.client.dto.ComboGenerateRequest;
 import iuh.fit.se.shared.ai.client.dto.ComboGenerateResponse;
 import java.util.List;
@@ -29,7 +29,7 @@ public interface MenuService {
 
     List<CustomerMenuCategoryResponse> getCustomerMenu();
 
-    List<AdminMenuCategoryListItemResponse> getAllCategoriesForAdmin();
+    List<ManagerMenuCategoryListItemResponse> getAllCategoriesForManager();
 
     List<MenuItemResponse> getAvailableItemsByCategory(Long categoryId);
 
@@ -37,17 +37,17 @@ public interface MenuService {
 
     MenuItemDTO updateMenuItemImage(Long id, MultipartFile file);
 
-    MenuItemAdminDetailResponse createMenuItem(CreateMenuItemRequest request);
+    MenuItemManagerDetailResponse createMenuItem(CreateMenuItemRequest request);
 
-    MenuItemAdminDetailResponse updateMenuItem(Long id, UpdateMenuItemRequest request);
+    MenuItemManagerDetailResponse updateMenuItem(Long id, UpdateMenuItemRequest request);
 
     void deleteMenuItem(Long id);
 
-    MenuItemAdminDetailResponse getMenuItemAdminDetail(Long id);
+    MenuItemManagerDetailResponse getMenuItemManagerDetail(Long id);
 
-    MenuItemAdminDetailResponse upsertFixedComboConfig(Long comboItemId, UpsertFixedComboRequest request);
+    MenuItemManagerDetailResponse upsertFixedComboConfig(Long comboItemId, UpsertFixedComboRequest request);
 
-    MenuItemAdminDetailResponse upsertPickComboConfig(Long comboItemId, UpsertPickComboRequest request);
+    MenuItemManagerDetailResponse upsertPickComboConfig(Long comboItemId, UpsertPickComboRequest request);
 
     MenuCategoryDetailResponse createCategory(CreateMenuCategoryRequest request);
 

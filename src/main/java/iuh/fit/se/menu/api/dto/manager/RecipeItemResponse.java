@@ -1,4 +1,4 @@
-package iuh.fit.se.menu.api.dto.admin;
+package iuh.fit.se.menu.api.dto.manager;
 
 import iuh.fit.se.inventory.domain.IngredientUnit;
 import java.math.BigDecimal;
@@ -14,3 +14,4 @@ public class RecipeItemResponse {
     private IngredientUnit unit;
     private BigDecimal quantity;
 }
+

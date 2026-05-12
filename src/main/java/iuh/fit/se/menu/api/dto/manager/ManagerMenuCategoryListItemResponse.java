@@ -1,12 +1,12 @@
-package iuh.fit.se.menu.api.dto.admin;
+package iuh.fit.se.menu.api.dto.manager;
 
 import iuh.fit.se.menu.domain.MenuCategory;
 import java.time.Instant;
 
 /**
- * Lightweight category entry for admin list view, including item count.
+ * Lightweight category entry for manager list view, including item count.
  */
-public record AdminMenuCategoryListItemResponse(
+public record ManagerMenuCategoryListItemResponse(
         Long id,
         String name,
         String description,
@@ -15,8 +15,8 @@ public record AdminMenuCategoryListItemResponse(
         Instant createdAt,
         Instant updatedAt
 ) {
-    public static AdminMenuCategoryListItemResponse from(MenuCategory category, long itemCount) {
-        return new AdminMenuCategoryListItemResponse(
+    public static ManagerMenuCategoryListItemResponse from(MenuCategory category, long itemCount) {
+        return new ManagerMenuCategoryListItemResponse(
                 category.getId(),
                 category.getName(),
                 category.getDescription(),
@@ -27,3 +27,5 @@ public record AdminMenuCategoryListItemResponse(
         );
     }
 }
+
+

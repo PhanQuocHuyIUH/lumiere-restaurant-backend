@@ -7,7 +7,9 @@ import iuh.fit.se.identity.domain.Staff;
 import iuh.fit.se.identity.domain.StaffStatus;
 import iuh.fit.se.identity.infrastructure.StaffRepository;
 import iuh.fit.se.shared.exception.DomainException;
+import iuh.fit.se.shared.exception.ForbiddenException;
 import iuh.fit.se.shared.exception.ResourceNotFoundException;
+import iuh.fit.se.identity.domain.StaffRole;
 import java.util.List;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -63,6 +65,9 @@ public class StaffServiceImpl implements StaffService {
 
     @Override
     public StaffResponse updateStaff(Long staffId, CreateStaffRequest request) {
+        if (staffId.equals(1L) && request.role() != StaffRole.MANAGER) {
+            throw new ForbiddenException("Không thể hạ quyền tài khoản quản trị viên gốc của hệ thống");
+        }
         Staff staff = getActiveStaff(staffId);
         String normalizedUsername = normalizeUsername(request.username());
 
@@ -81,6 +86,9 @@ public class StaffServiceImpl implements StaffService {
 
     @Override
     public void deleteStaff(Long staffId) {
+        if (staffId.equals(1L)) {
+            throw new ForbiddenException("Không thể xóa tài khoản quản trị viên gốc của hệ thống");
+        }
         Staff staff = getActiveStaff(staffId);
         staff.softDelete();
         staffRepository.save(staff);

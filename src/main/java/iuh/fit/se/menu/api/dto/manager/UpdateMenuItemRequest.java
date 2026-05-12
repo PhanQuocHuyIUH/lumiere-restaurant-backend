@@ -1,7 +1,10 @@
-package iuh.fit.se.menu.api.dto.admin;
+package iuh.fit.se.menu.api.dto.manager;
 
 import iuh.fit.se.menu.domain.ComboKind;
 import iuh.fit.se.menu.domain.MenuItemType;
+import iuh.fit.se.shared.domain.TaxMode;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.PositiveOrZero;
@@ -25,14 +28,19 @@ public record UpdateMenuItemRequest(
 
         String imageUrl,
 
-
-
         @NotNull(message = "itemType is required")
         MenuItemType itemType,
 
         ComboKind comboKind,
 
-        Boolean available
+        Boolean available,
+
+        TaxMode itemTaxMode,
+
+        @Min(value = 0, message = "itemTaxRateBps must be >= 0")
+        @Max(value = 10000, message = "itemTaxRateBps must be <= 10000")
+        Integer itemTaxRateBps
 ) {
 }
+
 

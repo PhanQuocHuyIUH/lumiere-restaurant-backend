@@ -31,7 +31,7 @@ public class CustomerMenuItemResponse {
                 .id(menuItem.getId())
                 .name(menuItem.getName())
                 .description(menuItem.getDescription())
-                .price(menuItem.getPrice())
+            .price(menuItem.getPrice() == null ? BigDecimal.ZERO : menuItem.getPrice().toBigDecimal())
                 .cookTime(menuItem.getCookTime())
                 .imageUrl(menuItem.getImageUrl())
                 .available(menuItem.isAvailable())

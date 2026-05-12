@@ -1,4 +1,4 @@
-package iuh.fit.se.menu.api.dto.admin;
+package iuh.fit.se.menu.api.dto.manager;
 
 import jakarta.validation.constraints.NotBlank;
 
@@ -8,3 +8,4 @@ public record CreateMenuCategoryRequest(
         Integer displayOrder
 ) {
 }
+

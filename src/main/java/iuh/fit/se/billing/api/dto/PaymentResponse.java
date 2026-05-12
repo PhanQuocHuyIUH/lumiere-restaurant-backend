@@ -4,6 +4,7 @@ import iuh.fit.se.billing.domain.Payment;
 import iuh.fit.se.billing.domain.PaymentMethod;
 import iuh.fit.se.billing.domain.PaymentProvider;
 import iuh.fit.se.billing.domain.PaymentStatus;
+import iuh.fit.se.shared.domain.TaxMode;
 import java.math.BigDecimal;
 import java.time.Instant;
 
@@ -11,7 +12,11 @@ public record PaymentResponse(
         Long paymentId,
         Long orderId,
     Long shiftId,
+        BigDecimal subtotalAmount,
+        BigDecimal taxAmount,
         BigDecimal amount,
+        TaxMode taxMode,
+        Integer taxRateBps,
         PaymentMethod paymentMethod,
         PaymentProvider provider,
         PaymentStatus status,
@@ -32,7 +37,11 @@ public record PaymentResponse(
                 payment.getId(),
                 payment.getOrderId(),
             payment.getShiftId(),
-                payment.getAmount(),
+                payment.getSubtotalAmount() == null ? BigDecimal.ZERO : payment.getSubtotalAmount().toBigDecimal(),
+                payment.getTaxAmount() == null ? BigDecimal.ZERO : payment.getTaxAmount().toBigDecimal(),
+                payment.getAmount() == null ? BigDecimal.ZERO : payment.getAmount().toBigDecimal(),
+                payment.getTaxMode(),
+                payment.getTaxRateBps(),
                 payment.getPaymentMethod(),
                 payment.getProvider(),
                 payment.getStatus(),

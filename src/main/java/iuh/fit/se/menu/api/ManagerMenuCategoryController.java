@@ -1,9 +1,9 @@
 package iuh.fit.se.menu.api;
 
-import iuh.fit.se.menu.api.dto.admin.AdminMenuCategoryListItemResponse;
-import iuh.fit.se.menu.api.dto.admin.CreateMenuCategoryRequest;
-import iuh.fit.se.menu.api.dto.admin.MenuCategoryDetailResponse;
-import iuh.fit.se.menu.api.dto.admin.UpdateMenuCategoryRequest;
+import iuh.fit.se.menu.api.dto.manager.ManagerMenuCategoryListItemResponse;
+import iuh.fit.se.menu.api.dto.manager.CreateMenuCategoryRequest;
+import iuh.fit.se.menu.api.dto.manager.MenuCategoryDetailResponse;
+import iuh.fit.se.menu.api.dto.manager.UpdateMenuCategoryRequest;
 import iuh.fit.se.menu.application.MenuService;
 import iuh.fit.se.shared.response.ApiResponse;
 import jakarta.validation.Valid;
@@ -21,19 +21,19 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
-@RequestMapping("/admin/menu/categories")
+@RequestMapping("/manager/menu/categories")
 @PreAuthorize("hasRole('MANAGER')")
-public class AdminMenuCategoryController {
+public class ManagerMenuCategoryController {
 
     private final MenuService menuService;
 
-    public AdminMenuCategoryController(MenuService menuService) {
+    public ManagerMenuCategoryController(MenuService menuService) {
         this.menuService = menuService;
     }
 
     @GetMapping
-    public ResponseEntity<ApiResponse<List<AdminMenuCategoryListItemResponse>>> getAll() {
-        return ResponseEntity.ok(ApiResponse.ok(menuService.getAllCategoriesForAdmin()));
+    public ResponseEntity<ApiResponse<List<ManagerMenuCategoryListItemResponse>>> getAll() {
+        return ResponseEntity.ok(ApiResponse.ok(menuService.getAllCategoriesForManager()));
     }
 
     @PostMapping

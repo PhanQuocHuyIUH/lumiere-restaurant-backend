@@ -1,8 +1,9 @@
-package iuh.fit.se.menu.api.dto.admin;
+package iuh.fit.se.menu.api.dto.manager;
 
 import iuh.fit.se.menu.domain.ComboKind;
 import iuh.fit.se.menu.domain.MenuItem;
 import iuh.fit.se.menu.domain.MenuItemType;
+import iuh.fit.se.shared.domain.TaxMode;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
@@ -11,13 +12,15 @@ import lombok.Getter;
 
 @Getter
 @Builder
-public class MenuItemAdminDetailResponse {
+public class MenuItemManagerDetailResponse {
 
     private Long id;
     private Long categoryId;
     private String name;
     private String description;
     private BigDecimal price;
+    private TaxMode itemTaxMode;
+    private Integer itemTaxRateBps;
     private Integer cookTime;
     private String imageUrl;
     private boolean available;
@@ -60,13 +63,15 @@ public class MenuItemAdminDetailResponse {
         private List<Long> allowedItemIds;
     }
 
-    public static MenuItemAdminDetailResponse fromBase(MenuItem item) {
-        return MenuItemAdminDetailResponse.builder()
+    public static MenuItemManagerDetailResponse fromBase(MenuItem item) {
+        return MenuItemManagerDetailResponse.builder()
                 .id(item.getId())
                 .categoryId(item.getCategoryId())
                 .name(item.getName())
                 .description(item.getDescription())
-                .price(item.getPrice())
+            .price(item.getPrice() == null ? BigDecimal.ZERO : item.getPrice().toBigDecimal())
+                .itemTaxMode(item.getItemTaxMode())
+                .itemTaxRateBps(item.getItemTaxRateBps())
                 .cookTime(item.getCookTime())
                 .imageUrl(item.getImageUrl())
                 .available(item.isAvailable())
@@ -78,4 +83,6 @@ public class MenuItemAdminDetailResponse {
                 .build();
     }
 }
+
+
 

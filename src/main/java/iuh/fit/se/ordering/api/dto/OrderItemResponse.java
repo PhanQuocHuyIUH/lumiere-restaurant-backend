@@ -27,7 +27,7 @@ public record OrderItemResponse(
                 item.getMenuItemId(),
                 item.getParentOrderItemId(),
                 item.getQuantity(),
-                item.getUnitPrice(),
+            item.getUnitPrice() == null ? BigDecimal.ZERO : item.getUnitPrice().toBigDecimal(),
                 item.calculateSubtotal(),
                 item.getNote(),
                 item.getStatus(),

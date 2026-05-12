@@ -2,6 +2,7 @@ package iuh.fit.se.shift.domain;
 
 import jakarta.persistence.*;
 import java.math.BigDecimal;
+import iuh.fit.se.shared.domain.Money;
 import java.time.Instant;
 
 @Entity
@@ -24,11 +25,13 @@ public class CashierShift {
     @Column(name = "closed_at")
     private Instant closedAt;
 
-    @Column(name = "opening_total", nullable = false)
-    private BigDecimal openingTotal;
+    @Embedded
+    @AttributeOverride(name = "vndAmount", column = @Column(name = "opening_total_vnd", nullable = false))
+    private Money openingTotal;
 
-    @Column(name = "closing_total")
-    private BigDecimal closingTotal;
+    @Embedded
+    @AttributeOverride(name = "vndAmount", column = @Column(name = "closing_total_vnd"))
+    private Money closingTotal;
 
     private String notes;
 
@@ -51,7 +54,7 @@ public class CashierShift {
 
     public CashierShift(Long cashierId, BigDecimal openingTotal, String notes, Long openedBy) {
         this.cashierId = cashierId;
-        this.openingTotal = openingTotal;
+        this.openingTotal = Money.of(openingTotal);
         this.notes = notes;
         this.openedBy = openedBy;
     }
@@ -61,8 +64,8 @@ public class CashierShift {
     public Long getOpenedBy() { return openedBy; }
     public Instant getOpenedAt() { return openedAt; }
     public Instant getClosedAt() { return closedAt; }
-    public BigDecimal getOpeningTotal() { return openingTotal; }
-    public BigDecimal getClosingTotal() { return closingTotal; }
+    public BigDecimal getOpeningTotal() { return BigDecimal.valueOf(openingTotal == null ? 0L : openingTotal.toLong()); }
+    public BigDecimal getClosingTotal() { return BigDecimal.valueOf(closingTotal == null ? 0L : closingTotal.toLong()); }
     public String getNotes() { return notes; }
     public String getClosingNotes() { return closingNotes; }
     public Long getClosedBy() { return closedBy; }
@@ -71,7 +74,7 @@ public class CashierShift {
     public Instant getDeletedAt() { return deletedAt; }
 
     public void close(BigDecimal closingTotal, Instant closedAt, Long closedBy, String closingNotes) {
-        this.closingTotal = closingTotal;
+        this.closingTotal = Money.of(closingTotal);
         this.closedAt = closedAt;
         this.closedBy = closedBy;
         this.closingNotes = closingNotes;
