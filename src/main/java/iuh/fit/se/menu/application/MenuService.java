@@ -1,5 +1,6 @@
 package iuh.fit.se.menu.application;
 
+import iuh.fit.se.menu.api.dto.ComboDetailResponse;
 import iuh.fit.se.menu.api.dto.CustomerMenuCategoryResponse;
 import iuh.fit.se.menu.api.dto.CustomerTrendingResponse;
 import iuh.fit.se.menu.api.dto.MenuCategorySummaryResponse;
@@ -37,6 +38,8 @@ public interface MenuService {
     List<MenuItemResponse> getAvailableItemsByCategory(Long categoryId);
 
     MenuItemData getItem(Long id);
+
+    ComboDetailResponse getComboDetail(Long id);
 
     List<MenuItemData> getMenuItemsBulk(List<Long> ids);
 

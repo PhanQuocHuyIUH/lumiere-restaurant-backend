@@ -1,5 +1,6 @@
 package iuh.fit.se.menu.api;
 
+import iuh.fit.se.menu.api.dto.ComboDetailResponse;
 import iuh.fit.se.menu.api.dto.MenuCategoryResponse;
 import iuh.fit.se.menu.api.dto.MenuCategorySummaryResponse;
 import iuh.fit.se.menu.api.dto.MenuItemResponse;
@@ -53,6 +54,11 @@ public class MenuItemController {
     public ResponseEntity<ApiResponse<MenuItemResponse>> getItemById(@PathVariable("id") Long id) {
         MenuItemData item = menuService.getItem(id);
         return ResponseEntity.ok(ApiResponse.ok(MenuItemResponse.from(item)));
+    }
+
+    @GetMapping("/items/{id}/combo")
+    public ResponseEntity<ApiResponse<ComboDetailResponse>> getComboDetail(@PathVariable("id") Long id) {
+        return ResponseEntity.ok(ApiResponse.ok(menuService.getComboDetail(id)));
     }
 
 }

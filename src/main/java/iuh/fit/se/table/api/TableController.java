@@ -3,6 +3,7 @@ package iuh.fit.se.table.api;
 import iuh.fit.se.menu.api.dto.CustomerMenuCategoryResponse;
 import iuh.fit.se.menu.api.dto.CustomerTrendingResponse;
 import iuh.fit.se.menu.application.MenuService;
+import iuh.fit.se.ordering.api.dto.OrderResponse;
 import iuh.fit.se.table.api.dto.QrInitResponse;
 import iuh.fit.se.table.api.dto.TableQrCodeResponse;
 import iuh.fit.se.table.api.dto.TableResponse;
@@ -47,6 +48,13 @@ public class TableController {
     public ResponseEntity<ApiResponse<TableResponse>> getTableByCode(@PathVariable("tableCode") String tableCode) {
         TableData table = tableService.getTableByCode(tableCode);
         return ResponseEntity.ok(ApiResponse.ok(TableResponse.from(table)));
+    }
+
+    @GetMapping("/{tableCode}/current-order")
+    public ResponseEntity<ApiResponse<OrderResponse>> getCurrentOrderByTableCode(
+            @PathVariable("tableCode") String tableCode
+    ) {
+        return ResponseEntity.ok(ApiResponse.ok(tableService.getCurrentOrderByTableCode(tableCode)));
     }
 
     @GetMapping("/qr/{qrKey}/init")

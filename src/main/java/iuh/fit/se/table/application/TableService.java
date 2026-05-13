@@ -1,5 +1,6 @@
 package iuh.fit.se.table.application;
 
+import iuh.fit.se.ordering.api.dto.OrderResponse;
 import iuh.fit.se.table.domain.TableStatus;
 import java.util.List;
 
@@ -12,6 +13,8 @@ public interface TableService {
     TableData getTableById(Long tableId);
 
     TableData getTableByQrKey(String qrKey);
+
+    OrderResponse getCurrentOrderByTableCode(String tableCode);
 
     QrSessionToken issueQrSession(String tableCode);
 

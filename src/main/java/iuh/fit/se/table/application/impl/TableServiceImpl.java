@@ -7,6 +7,14 @@ import com.google.zxing.client.j2se.MatrixToImageWriter;
 import com.google.zxing.common.BitMatrix;
 import com.google.zxing.qrcode.QRCodeWriter;
 import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel;
+import iuh.fit.se.ordering.api.dto.OrderResponse;
+import iuh.fit.se.ordering.domain.Order;
+import iuh.fit.se.ordering.domain.OrderItem;
+import iuh.fit.se.ordering.domain.OrderRevision;
+import iuh.fit.se.ordering.domain.OrderStatus;
+import iuh.fit.se.ordering.repository.OrderItemRepository;
+import iuh.fit.se.ordering.repository.OrderRepository;
+import iuh.fit.se.ordering.repository.OrderRevisionRepository;
 import iuh.fit.se.shared.exception.DomainException;
 import iuh.fit.se.shared.exception.ResourceNotFoundException;
 import iuh.fit.se.shared.storage.ImageStorageService;
@@ -31,6 +39,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -49,12 +58,22 @@ public class TableServiceImpl implements TableService {
     private static final Logger LOGGER = LoggerFactory.getLogger(TableServiceImpl.class);
     private static final Pattern TABLE_CODE_PATTERN = Pattern.compile("^(\\d+)-(\\d{1,3})$");
     private static final Pattern QR_KEY_PATTERN = Pattern.compile("^[a-zA-Z0-9]{16,120}$");
+    private static final Set<OrderStatus> ACTIVE_ORDER_STATUSES = Set.of(
+            OrderStatus.CREATED,
+            OrderStatus.CONFIRMED,
+            OrderStatus.PREPARING,
+            OrderStatus.READY,
+            OrderStatus.SERVED
+    );
     private static final int QR_IMAGE_SIZE = 512;
     private static final int QR_IMAGE_MARGIN = 1;
 
     private final RestaurantTableRepository restaurantTableRepository;
     private final TableQrCodeRepository tableQrCodeRepository;
     private final QrSessionRepository qrSessionRepository;
+    private final OrderRepository orderRepository;
+    private final OrderRevisionRepository orderRevisionRepository;
+    private final OrderItemRepository orderItemRepository;
     private final ImageStorageService imageStorageService;
     private final QrSessionCacheService qrSessionCacheService;
 
@@ -68,12 +87,18 @@ public class TableServiceImpl implements TableService {
             RestaurantTableRepository restaurantTableRepository,
             TableQrCodeRepository tableQrCodeRepository,
             QrSessionRepository qrSessionRepository,
+            OrderRepository orderRepository,
+            OrderRevisionRepository orderRevisionRepository,
+            OrderItemRepository orderItemRepository,
             ImageStorageService imageStorageService,
             QrSessionCacheService qrSessionCacheService
     ) {
         this.restaurantTableRepository = restaurantTableRepository;
         this.tableQrCodeRepository = tableQrCodeRepository;
         this.qrSessionRepository = qrSessionRepository;
+        this.orderRepository = orderRepository;
+        this.orderRevisionRepository = orderRevisionRepository;
+        this.orderItemRepository = orderItemRepository;
         this.imageStorageService = imageStorageService;
         this.qrSessionCacheService = qrSessionCacheService;
     }
@@ -100,6 +125,19 @@ public class TableServiceImpl implements TableService {
     @Override
     public TableData getTableByQrKey(String qrKey) {
         return TableData.from(getActiveTableByQrKey(qrKey));
+    }
+
+    @Override
+    public OrderResponse getCurrentOrderByTableCode(String tableCode) {
+        RestaurantTable table = getActiveTable(tableCode);
+        Order order = orderRepository.findTopByTableIdAndStatusInOrderByCreatedAtDesc(table.getId(), ACTIVE_ORDER_STATUSES)
+                .orElseThrow(() -> new ResourceNotFoundException("Active order", "tableCode=" + tableCode));
+
+        OrderRevision latestRevision = orderRevisionRepository.findTopByOrderIdOrderByRevisionNumberDesc(order.getId())
+                .orElseThrow(() -> new ResourceNotFoundException("OrderRevision", "orderId=" + order.getId()));
+        List<OrderItem> latestItems = orderItemRepository.findAllByRevisionIdOrderByIdAsc(latestRevision.getId());
+
+        return OrderResponse.from(order, latestRevision.getRevisionNumber(), latestItems);
     }
 
     @Override

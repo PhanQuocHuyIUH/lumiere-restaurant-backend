@@ -375,6 +375,12 @@ public class OrderingServiceImpl implements OrderingService {
         }
 
         List<OrderItem> latestItems = orderItemRepository.findAllByRevisionIdOrderByIdAsc(latestRevision.getId());
+
+        List<OrderItem> syncedParents = syncComboParents(latestItems);
+        if (!syncedParents.isEmpty()) {
+            orderItemRepository.saveAll(syncedParents);
+        }
+
         promoteOrderAfterServingIfEligible(order, staffId, latestItems);
 
         return OrderResponse.from(order, latestRevision.getRevisionNumber(), latestItems);
@@ -392,6 +398,7 @@ public class OrderingServiceImpl implements OrderingService {
 
         List<OrderItem> changedItems = new ArrayList<>();
         for (OrderItem item : latestItems) {
+            if (item.isComboParent()) continue;
             if (item.getStatus() == OrderItemStatus.DONE) {
                 item.markServed();
                 changedItems.add(item);
@@ -401,6 +408,9 @@ public class OrderingServiceImpl implements OrderingService {
                 );
             }
         }
+
+        List<OrderItem> syncedParents = syncComboParents(latestItems);
+        changedItems.addAll(syncedParents);
 
         if (!changedItems.isEmpty()) {
             orderItemRepository.saveAll(changedItems);
@@ -452,13 +462,34 @@ public class OrderingServiceImpl implements OrderingService {
     }
 
     private boolean areAllItemsDoneForReady(List<OrderItem> items) {
-        return items.stream().allMatch(item ->
-                item.getStatus() == OrderItemStatus.DONE || item.getStatus() == OrderItemStatus.SERVED
-        );
+        return items.stream()
+                .filter(item -> !item.isComboParent())
+                .allMatch(item -> item.getStatus() == OrderItemStatus.DONE || item.getStatus() == OrderItemStatus.SERVED);
     }
 
     private boolean areAllItemsServed(List<OrderItem> items) {
-        return items.stream().allMatch(item -> item.getStatus() == OrderItemStatus.SERVED);
+        return items.stream()
+                .filter(item -> !item.isComboParent())
+                .allMatch(item -> item.getStatus() == OrderItemStatus.SERVED);
+    }
+
+    private List<OrderItem> syncComboParents(List<OrderItem> allItems) {
+        Map<Long, List<OrderItem>> childrenByParentId = allItems.stream()
+                .filter(item -> !item.isComboParent() && item.getParentOrderItemId() != null)
+                .collect(Collectors.groupingBy(OrderItem::getParentOrderItemId));
+
+        List<OrderItem> synced = new ArrayList<>();
+        for (OrderItem item : allItems) {
+            if (!item.isComboParent()) continue;
+            List<OrderItem> children = childrenByParentId.getOrDefault(item.getId(), List.of());
+            if (!children.isEmpty()
+                    && children.stream().allMatch(c -> c.getStatus() == OrderItemStatus.SERVED)
+                    && item.getStatus() != OrderItemStatus.SERVED) {
+                item.markServed();
+                synced.add(item);
+            }
+        }
+        return synced;
     }
 
     private void promoteOrderAfterServingIfEligible(Order order, Long staffId, List<OrderItem> latestItems) {

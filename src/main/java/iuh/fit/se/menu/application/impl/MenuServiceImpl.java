@@ -5,6 +5,7 @@ import iuh.fit.se.inventory.application.IngredientData;
 import iuh.fit.se.inventory.application.InventoryService;
 import iuh.fit.se.kitchen.application.KitchenService;
 import iuh.fit.se.kitchen.application.KitchenTaskCookData;
+import iuh.fit.se.menu.api.dto.ComboDetailResponse;
 import iuh.fit.se.menu.api.dto.CustomerMenuCategoryResponse;
 import iuh.fit.se.menu.api.dto.CustomerMenuItemResponse;
 import iuh.fit.se.menu.api.dto.CustomerTrendingResponse;
@@ -290,6 +291,76 @@ public class MenuServiceImpl implements MenuService {
     @Cacheable(value = "menu", key = "'item:' + #id")
     public MenuItemData getItem(Long id) {
         return MenuItemData.from(getActiveMenuItem(id));
+    }
+
+    @Override
+    public ComboDetailResponse getComboDetail(Long id) {
+        MenuItem item = getActiveMenuItem(id);
+        if (item.getItemType() != MenuItemType.COMBO) {
+            throw new DomainException("Menu item is not a COMBO: " + id);
+        }
+
+        if (item.getComboKind() == ComboKind.FIXED) {
+            List<ComboFixedComponent> components = comboFixedComponentRepository.findAllByComboItemIdOrderByIdAsc(item.getId());
+            List<Long> componentItemIds = components.stream().map(ComboFixedComponent::getComponentItemId).toList();
+            Map<Long, MenuItem> componentItemMap = menuItemRepository.findAllById(componentItemIds).stream()
+                    .collect(Collectors.toMap(MenuItem::getId, Function.identity()));
+
+            List<ComboDetailResponse.FixedComponent> fixedComponents = components.stream()
+                    .map(c -> ComboDetailResponse.FixedComponent.builder()
+                            .quantity(c.getQuantity())
+                            .item(ComboDetailResponse.ComboItemSummary.from(componentItemMap.get(c.getComponentItemId())))
+                            .build())
+                    .toList();
+
+            return ComboDetailResponse.builder()
+                    .id(item.getId())
+                    .name(item.getName())
+                    .price(item.getPrice() == null ? BigDecimal.ZERO : item.getPrice().toBigDecimal())
+                    .imageUrl(item.getImageUrl())
+                    .comboKind(item.getComboKind())
+                    .fixedComponents(fixedComponents)
+                    .build();
+        }
+
+        // PICK
+        List<ComboPickSlot> slots = comboPickSlotRepository.findAllByComboItemIdOrderByDisplayOrderAscIdAsc(item.getId());
+        List<Long> slotIds = slots.stream().map(ComboPickSlot::getId).toList();
+        List<ComboPickSlotItem> slotItems = slotIds.isEmpty() ? List.of() : comboPickSlotItemRepository.findAllBySlotIdIn(slotIds);
+
+        List<Long> allAllowedItemIds = slotItems.stream().map(ComboPickSlotItem::getMenuItemId).distinct().toList();
+        Map<Long, MenuItem> allowedItemMap = menuItemRepository.findAllById(allAllowedItemIds).stream()
+                .collect(Collectors.toMap(MenuItem::getId, Function.identity()));
+
+        Map<Long, List<ComboPickSlotItem>> slotItemsBySlotId = slotItems.stream()
+                .collect(Collectors.groupingBy(ComboPickSlotItem::getSlotId, LinkedHashMap::new, Collectors.toList()));
+
+        List<ComboDetailResponse.PickSlot> pickSlots = slots.stream()
+                .map(slot -> {
+                    List<ComboDetailResponse.ComboItemSummary> allowedItems = slotItemsBySlotId
+                            .getOrDefault(slot.getId(), List.of()).stream()
+                            .map(si -> ComboDetailResponse.ComboItemSummary.from(allowedItemMap.get(si.getMenuItemId())))
+                            .filter(java.util.Objects::nonNull)
+                            .toList();
+                    return ComboDetailResponse.PickSlot.builder()
+                            .id(slot.getId())
+                            .name(slot.getName())
+                            .minSelect(slot.getMinSelect())
+                            .maxSelect(slot.getMaxSelect())
+                            .displayOrder(slot.getDisplayOrder())
+                            .allowedItems(allowedItems)
+                            .build();
+                })
+                .toList();
+
+        return ComboDetailResponse.builder()
+                .id(item.getId())
+                .name(item.getName())
+                .price(item.getPrice() == null ? BigDecimal.ZERO : item.getPrice().toBigDecimal())
+                .imageUrl(item.getImageUrl())
+                .comboKind(item.getComboKind())
+                .pickSlots(pickSlots)
+                .build();
     }
 
     @Override
