@@ -5,21 +5,21 @@ import java.util.List;
 
 public interface TableService {
 
-    List<TableDTO> getAllTables();
+    List<TableData> getAllTables();
 
-    TableDTO getTableByCode(String tableCode);
+    TableData getTableByCode(String tableCode);
 
-    TableDTO getTableById(Long tableId);
+    TableData getTableById(Long tableId);
 
-    TableDTO getTableByQrKey(String qrKey);
+    TableData getTableByQrKey(String qrKey);
 
-    QrSessionTokenDTO issueQrSession(String tableCode);
+    QrSessionToken issueQrSession(String tableCode);
 
     void validateQrSession(String sessionId, String tableCode);
 
-    TableQrCodeDTO getOrCreateTableQrCode(String tableCode);
+    TableQrCodeData getOrCreateTableQrCode(String tableCode);
 
-    TableQrCodeDTO rotateTableQrCode(String tableCode);
+    TableQrCodeData rotateTableQrCode(String tableCode);
 
     void markTableOccupied(Long tableId);
 
@@ -27,11 +27,11 @@ public interface TableService {
 
     void markTableCleaning(Long tableId);
 
-    TableDTO updateTableStatus(String tableCode, TableStatus newStatus);
+    TableData updateTableStatus(String tableCode, TableStatus newStatus);
 
-    TableDTO createTable(int floor, int tableNo, int capacity);
+    TableData createTable(int floor, int tableNo, int capacity);
 
-    TableDTO updateTable(String tableCode, int floor, int tableNo, int capacity);
+    TableData updateTable(String tableCode, int floor, int tableNo, int capacity);
 
     void deleteTable(String tableCode);
 }

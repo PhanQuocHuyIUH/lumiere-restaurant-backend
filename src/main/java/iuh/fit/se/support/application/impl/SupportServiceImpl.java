@@ -4,7 +4,7 @@ import iuh.fit.se.support.api.dto.CreateSupportRequest;
 import iuh.fit.se.support.api.dto.SupportResponse;
 import iuh.fit.se.support.application.SupportService;
 import iuh.fit.se.support.domain.SupportRequest;
-import iuh.fit.se.support.infrastructure.SupportRequestRepository;
+import iuh.fit.se.support.repository.SupportRequestRepository;
 import java.util.List;
 import java.util.stream.Collectors;
 import org.springframework.messaging.simp.SimpMessagingTemplate;

@@ -22,6 +22,6 @@ public class KitchenOrderEventListener {
     @Retryable(maxAttempts = 3, backoff = @Backoff(delay = 1000, multiplier = 2))
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onOrderConfirmed(OrderConfirmedEvent event) {
-        kitchenService.createTasksForOrder(event.getOrderId(), event.getOrderItemIds());
+        kitchenService.createTasksForOrder(event);
     }
 }

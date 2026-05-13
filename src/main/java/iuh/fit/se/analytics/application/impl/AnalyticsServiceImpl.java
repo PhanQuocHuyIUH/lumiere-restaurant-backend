@@ -9,7 +9,7 @@ import iuh.fit.se.analytics.api.dto.RevenuePeriodEntry;
 import iuh.fit.se.analytics.api.dto.TopMenuItemEntry;
 import iuh.fit.se.analytics.application.AnalyticsService;
 import iuh.fit.se.analytics.domain.OrderEvent;
-import iuh.fit.se.analytics.infrastructure.OrderEventRepository;
+import iuh.fit.se.analytics.repository.OrderEventRepository;
 import iuh.fit.se.shared.ai.AiClient;
 import iuh.fit.se.shared.ai.AiOperation;
 import iuh.fit.se.shared.ai.client.dto.ForecastRequest;
@@ -332,6 +332,16 @@ public class AnalyticsServiceImpl implements AnalyticsService {
 
     private BigDecimal normalizeAmount(BigDecimal value) {
         return value == null ? BigDecimal.ZERO : value;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Map<Long, Long> getOrderCountsByItem(Instant from, Instant to) {
+        return orderEventRepository.findOrderCountsByItem(from, to).stream()
+                .collect(java.util.stream.Collectors.toMap(
+                        OrderEventRepository.ItemOrderCountProjection::getMenuItemId,
+                        OrderEventRepository.ItemOrderCountProjection::getOrderCount
+                ));
     }
 
     private record EventActor(Long actorId, String actorType) {

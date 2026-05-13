@@ -1,6 +1,6 @@
 package iuh.fit.se.table.api.dto;
 
-import iuh.fit.se.table.application.QrSessionTokenDTO;
+import iuh.fit.se.table.application.QrSessionToken;
 import java.time.Instant;
 
 public record QrInitResponse(
@@ -9,7 +9,7 @@ public record QrInitResponse(
         Instant expiresAt
 ) {
 
-    public static QrInitResponse from(String tableCode, QrSessionTokenDTO sessionToken) {
+    public static QrInitResponse from(String tableCode, QrSessionToken sessionToken) {
         return new QrInitResponse(
                 tableCode,
                 sessionToken.sessionId(),

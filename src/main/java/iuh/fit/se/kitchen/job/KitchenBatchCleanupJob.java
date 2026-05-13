@@ -2,8 +2,8 @@ package iuh.fit.se.kitchen.job;
 
 import iuh.fit.se.kitchen.domain.KitchenBatch;
 import iuh.fit.se.kitchen.domain.KitchenBatchStatus;
-import iuh.fit.se.kitchen.infrastructure.KitchenBatchItemRepository;
-import iuh.fit.se.kitchen.infrastructure.KitchenBatchRepository;
+import iuh.fit.se.kitchen.repository.KitchenBatchItemRepository;
+import iuh.fit.se.kitchen.repository.KitchenBatchRepository;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;

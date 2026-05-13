@@ -7,8 +7,8 @@ import iuh.fit.se.table.api.dto.QrInitResponse;
 import iuh.fit.se.table.api.dto.TableQrCodeResponse;
 import iuh.fit.se.table.api.dto.TableResponse;
 import iuh.fit.se.table.api.dto.UpdateTableStatusRequest;
-import iuh.fit.se.table.application.QrSessionTokenDTO;
-import iuh.fit.se.table.application.TableDTO;
+import iuh.fit.se.table.application.QrSessionToken;
+import iuh.fit.se.table.application.TableData;
 import iuh.fit.se.table.application.TableService;
 import iuh.fit.se.shared.response.ApiResponse;
 import jakarta.validation.Valid;
@@ -45,14 +45,14 @@ public class TableController {
 
     @GetMapping("/{tableCode}")
     public ResponseEntity<ApiResponse<TableResponse>> getTableByCode(@PathVariable("tableCode") String tableCode) {
-        TableDTO table = tableService.getTableByCode(tableCode);
+        TableData table = tableService.getTableByCode(tableCode);
         return ResponseEntity.ok(ApiResponse.ok(TableResponse.from(table)));
     }
 
     @GetMapping("/qr/{qrKey}/init")
     public ResponseEntity<ApiResponse<QrInitResponse>> initQrByQrKey(@PathVariable("qrKey") String qrKey) {
-        TableDTO table = tableService.getTableByQrKey(qrKey);
-        QrSessionTokenDTO session = tableService.issueQrSession(table.tableCode());
+        TableData table = tableService.getTableByQrKey(qrKey);
+        QrSessionToken session = tableService.issueQrSession(table.tableCode());
         return ResponseEntity.ok(ApiResponse.ok("QR init loaded", QrInitResponse.from(table.tableCode(), session)));
     }
 
@@ -61,7 +61,7 @@ public class TableController {
             @PathVariable("qrKey") String qrKey,
             @RequestHeader("X-QR-Session") String qrSessionId
     ) {
-        TableDTO table = tableService.getTableByQrKey(qrKey);
+        TableData table = tableService.getTableByQrKey(qrKey);
         tableService.validateQrSession(qrSessionId, table.tableCode());
         return ResponseEntity.ok(ApiResponse.ok(menuService.getCustomerMenu()));
     }
@@ -71,7 +71,7 @@ public class TableController {
             @PathVariable("qrKey") String qrKey,
             @RequestHeader("X-QR-Session") String qrSessionId
     ) {
-        TableDTO table = tableService.getTableByQrKey(qrKey);
+        TableData table = tableService.getTableByQrKey(qrKey);
         tableService.validateQrSession(qrSessionId, table.tableCode());
         return ResponseEntity.ok(ApiResponse.ok(menuService.getTrending()));
     }
@@ -100,7 +100,7 @@ public class TableController {
             @PathVariable("tableCode") String tableCode,
             @Valid @RequestBody UpdateTableStatusRequest request
     ) {
-        TableDTO updated = tableService.updateTableStatus(tableCode, request.status());
+        TableData updated = tableService.updateTableStatus(tableCode, request.status());
         return ResponseEntity.ok(ApiResponse.ok("Table status updated", TableResponse.from(updated)));
     }
 }

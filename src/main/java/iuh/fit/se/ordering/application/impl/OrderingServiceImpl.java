@@ -3,9 +3,9 @@ package iuh.fit.se.ordering.application.impl;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import iuh.fit.se.menu.api.dto.manager.MenuItemManagerDetailResponse;
-import iuh.fit.se.menu.application.MenuItemDTO;
+import iuh.fit.se.menu.application.MenuItemData;
 import iuh.fit.se.menu.application.MenuService;
-import iuh.fit.se.table.application.TableDTO;
+import iuh.fit.se.table.application.TableData;
 import iuh.fit.se.table.application.TableService;
 import iuh.fit.se.menu.domain.ComboKind;
 import iuh.fit.se.menu.domain.MenuItemType;
@@ -25,9 +25,9 @@ import iuh.fit.se.shared.domain.TaxMode;
 import iuh.fit.se.shared.tax.application.TaxConfigService;
 import iuh.fit.se.shared.tax.application.TaxConfigService.TaxConfigDto;
 import iuh.fit.se.shared.util.PricingEngine;
-import iuh.fit.se.ordering.infrastructure.OrderItemRepository;
-import iuh.fit.se.ordering.infrastructure.OrderRepository;
-import iuh.fit.se.ordering.infrastructure.OrderRevisionRepository;
+import iuh.fit.se.ordering.repository.OrderItemRepository;
+import iuh.fit.se.ordering.repository.OrderRepository;
+import iuh.fit.se.ordering.repository.OrderRevisionRepository;
 import iuh.fit.se.shared.ai.AiClient;
 import iuh.fit.se.shared.ai.AiOperation;
 import iuh.fit.se.shared.ai.client.dto.ChatbotRequest;
@@ -37,6 +37,7 @@ import iuh.fit.se.shared.ai.client.dto.RecommendResponse;
 import iuh.fit.se.shared.event.OrderCancelledEvent;
 import iuh.fit.se.shared.event.OrderConfirmedEvent;
 import iuh.fit.se.shared.event.OrderCreatedEvent;
+import iuh.fit.se.shared.event.OrderItemSnapshot;
 import iuh.fit.se.shared.exception.DomainException;
 import iuh.fit.se.shared.exception.ResourceNotFoundException;
 import iuh.fit.se.shared.response.PagedResponse;
@@ -49,8 +50,11 @@ import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.security.access.AccessDeniedException;
@@ -124,7 +128,7 @@ public class OrderingServiceImpl implements OrderingService {
     @Override
     public OrderResponse createOrder(CreateOrderRequest request, String qrSessionId) {
         RevisionActor actor = resolveActorForCreate(qrSessionId, request.tableCode());
-        TableDTO table = validateTableCanReceiveOrders(request.tableCode());
+        TableData table = validateTableCanReceiveOrders(request.tableCode());
         Optional<Order> activeOrderOpt = orderRepository.findTopByTableIdAndStatusInOrderByCreatedAtDesc(
                 table.id(),
                 ACTIVE_ORDER_STATUSES
@@ -134,7 +138,7 @@ public class OrderingServiceImpl implements OrderingService {
                 return createRevisionForExistingOrder(activeOrderOpt.get(), request, actor);
             }
 
-            Map<Long, MenuItemDTO> menuItems = resolveAvailableMenuItems(request.items());
+            Map<Long, MenuItemData> menuItems = resolveAvailableMenuItems(request.items());
 
             Order order = Order.builder()
                     .tableId(table.id())
@@ -180,7 +184,7 @@ public class OrderingServiceImpl implements OrderingService {
             RevisionActor actor = resolveActorForRevision(qrSessionId, order);
             ensureCanAddRevision(order);
 
-            Map<Long, MenuItemDTO> menuItems = resolveAvailableMenuItemsForRevision(request.items());
+            Map<Long, MenuItemData> menuItems = resolveAvailableMenuItemsForRevision(request.items());
             int nextRevisionNumber = orderRevisionRepository.findTopByOrderIdOrderByRevisionNumberDesc(orderId)
                     .map(revision -> revision.getRevisionNumber() + 1)
                     .orElse(1);
@@ -203,12 +207,7 @@ public class OrderingServiceImpl implements OrderingService {
             if (order.getStatus() == OrderStatus.SERVED) {
                 order.reopenForAdditionalItems();
                 orderRepository.save(order);
-
-                List<Long> orderItemIds = savedItems.stream()
-                        .filter(item -> !item.isComboParent())
-                        .map(OrderItem::getId)
-                        .toList();
-                eventPublisher.publishEvent(new OrderConfirmedEvent(order.getId(), orderItemIds));
+                eventPublisher.publishEvent(buildOrderConfirmedEvent(order, savedItems));
             }
 
             refreshOrderTotal(order, revision.getId());
@@ -232,11 +231,7 @@ public class OrderingServiceImpl implements OrderingService {
             OrderRevision latestRevision = getLatestRevision(orderId);
             List<OrderItem> latestItems = orderItemRepository.findAllByRevisionIdOrderByIdAsc(latestRevision.getId());
 
-            List<Long> orderItemIds = latestItems.stream()
-                    .filter(item -> !item.isComboParent())
-                    .map(OrderItem::getId)
-                    .toList();
-            eventPublisher.publishEvent(new OrderConfirmedEvent(order.getId(), orderItemIds));
+            eventPublisher.publishEvent(buildOrderConfirmedEvent(order, latestItems));
 
             return OrderResponse.from(order, latestRevision.getRevisionNumber(), latestItems);
     }
@@ -478,8 +473,8 @@ public class OrderingServiceImpl implements OrderingService {
         }
     }
 
-    private TableDTO validateTableCanReceiveOrders(String tableCode) {
-        TableDTO table = tableService.getTableByCode(tableCode);
+    private TableData validateTableCanReceiveOrders(String tableCode) {
+        TableData table = tableService.getTableByCode(tableCode);
 
         String statusName = table.status() == null ? "UNKNOWN" : table.status().name();
         if (!"AVAILABLE".equals(statusName) && !"OCCUPIED".equals(statusName)) {
@@ -496,7 +491,7 @@ public class OrderingServiceImpl implements OrderingService {
     ) {
         ensureCanAddRevision(order);
 
-        Map<Long, MenuItemDTO> menuItems = resolveAvailableMenuItems(request.items());
+        Map<Long, MenuItemData> menuItems = resolveAvailableMenuItems(request.items());
         int nextRevisionNumber = orderRevisionRepository.findTopByOrderIdOrderByRevisionNumberDesc(order.getId())
                 .map(revision -> revision.getRevisionNumber() + 1)
                 .orElse(1);
@@ -519,12 +514,7 @@ public class OrderingServiceImpl implements OrderingService {
         if (order.getStatus() == OrderStatus.SERVED) {
             order.reopenForAdditionalItems();
             orderRepository.save(order);
-
-            List<Long> orderItemIds = savedItems.stream()
-                    .filter(item -> !item.isComboParent())
-                    .map(OrderItem::getId)
-                    .toList();
-            eventPublisher.publishEvent(new OrderConfirmedEvent(order.getId(), orderItemIds));
+            eventPublisher.publishEvent(buildOrderConfirmedEvent(order, savedItems));
         }
 
         refreshOrderTotal(order, revision.getId());
@@ -538,10 +528,10 @@ public class OrderingServiceImpl implements OrderingService {
         return response;
     }
 
-    private Map<Long, MenuItemDTO> resolveAvailableMenuItems(List<CreateOrderRequest.OrderItemRequest> items) {
-        Map<Long, MenuItemDTO> menuItemsById = new HashMap<>();
+    private Map<Long, MenuItemData> resolveAvailableMenuItems(List<CreateOrderRequest.OrderItemRequest> items) {
+        Map<Long, MenuItemData> menuItemsById = new HashMap<>();
         for (CreateOrderRequest.OrderItemRequest item : items) {
-            MenuItemDTO menuItem = menuItemsById.computeIfAbsent(item.menuItemId(), menuService::getItem);
+            MenuItemData menuItem = menuItemsById.computeIfAbsent(item.menuItemId(), menuService::getItem);
             if (!menuItem.available()) {
                 throw new DomainException("Menu item not available: " + item.menuItemId());
             }
@@ -549,12 +539,12 @@ public class OrderingServiceImpl implements OrderingService {
         return menuItemsById;
     }
 
-    private Map<Long, MenuItemDTO> resolveAvailableMenuItemsForRevision(
+    private Map<Long, MenuItemData> resolveAvailableMenuItemsForRevision(
             List<AddRevisionRequest.RevisionItemRequest> items
     ) {
-        Map<Long, MenuItemDTO> menuItemsById = new HashMap<>();
+        Map<Long, MenuItemData> menuItemsById = new HashMap<>();
         for (AddRevisionRequest.RevisionItemRequest item : items) {
-            MenuItemDTO menuItem = menuItemsById.computeIfAbsent(item.menuItemId(), menuService::getItem);
+            MenuItemData menuItem = menuItemsById.computeIfAbsent(item.menuItemId(), menuService::getItem);
             if (!menuItem.available()) {
                 throw new DomainException("Menu item not available: " + item.menuItemId());
             }
@@ -565,13 +555,13 @@ public class OrderingServiceImpl implements OrderingService {
     private List<OrderItem> persistCreateOrderItems(
             Long revisionId,
             List<CreateOrderRequest.OrderItemRequest> requests,
-            Map<Long, MenuItemDTO> menuItems
+            Map<Long, MenuItemData> menuItems
     ) {
         List<OrderItem> all = new ArrayList<>();
         List<OrderItem> singlesToSave = new ArrayList<>();
 
         for (CreateOrderRequest.OrderItemRequest request : requests) {
-            MenuItemDTO menuItem = menuItems.get(request.menuItemId());
+            MenuItemData menuItem = menuItems.get(request.menuItemId());
             if (menuItem != null && menuItem.itemType() == MenuItemType.SINGLE) {
                 singlesToSave.addAll(createOrderItemsForRequest(
                         revisionId,
@@ -602,13 +592,13 @@ public class OrderingServiceImpl implements OrderingService {
     private List<OrderItem> persistRevisionItems(
             Long revisionId,
             List<AddRevisionRequest.RevisionItemRequest> requests,
-            Map<Long, MenuItemDTO> menuItems
+            Map<Long, MenuItemData> menuItems
     ) {
         List<OrderItem> all = new ArrayList<>();
         List<OrderItem> singlesToSave = new ArrayList<>();
 
         for (AddRevisionRequest.RevisionItemRequest request : requests) {
-            MenuItemDTO menuItem = menuItems.get(request.menuItemId());
+            MenuItemData menuItem = menuItems.get(request.menuItemId());
             if (menuItem != null && menuItem.itemType() == MenuItemType.SINGLE) {
                 singlesToSave.addAll(createOrderItemsForRequest(
                         revisionId,
@@ -642,7 +632,7 @@ public class OrderingServiceImpl implements OrderingService {
             Integer quantity,
             String note,
             CreateOrderRequest.ComboSelection comboSelection,
-            MenuItemDTO menuItem
+            MenuItemData menuItem
     ) {
         if (menuItem == null) {
             throw new DomainException("Menu item not found: " + menuItemId);
@@ -701,7 +691,7 @@ public class OrderingServiceImpl implements OrderingService {
 
         List<OrderItem> childrenToSave = new ArrayList<>();
         for (var component : detail.getFixedCombo().getComponents()) {
-            MenuItemDTO componentItem = menuService.getItem(component.getMenuItemId());
+            MenuItemData componentItem = menuService.getItem(component.getMenuItemId());
             if (!componentItem.available()) {
                 throw new DomainException("Menu item not available: " + component.getMenuItemId());
             }
@@ -766,7 +756,7 @@ public class OrderingServiceImpl implements OrderingService {
                 if (!allowed.contains(item.menuItemId())) {
                     throw new DomainException("Selected item not allowed in slotId=" + slot.getId() + ": " + item.menuItemId());
                 }
-                MenuItemDTO selectedMenuItem = menuService.getItem(item.menuItemId());
+                MenuItemData selectedMenuItem = menuService.getItem(item.menuItemId());
                 if (!selectedMenuItem.available()) {
                     throw new DomainException("Menu item not available: " + item.menuItemId());
                 }
@@ -898,7 +888,7 @@ public class OrderingServiceImpl implements OrderingService {
 
     private RevisionActor resolveActorForRevision(String qrSessionId, Order order) {
         if (hasText(qrSessionId)) {
-            TableDTO table = tableService.getTableById(order.getTableId());
+            TableData table = tableService.getTableById(order.getTableId());
             try {
                 tableService.validateQrSession(qrSessionId, table.tableCode());
             } catch (DomainException ex) {
@@ -1027,6 +1017,39 @@ public class OrderingServiceImpl implements OrderingService {
     private String normalizeCancelReason(String reason) {
         String normalized = normalizeOptionalText(reason);
         return normalized == null ? "Order cancelled" : normalized;
+    }
+
+    private OrderConfirmedEvent buildOrderConfirmedEvent(Order order, List<OrderItem> items) {
+        List<OrderItem> billableItems = items.stream()
+                .filter(item -> !item.isComboParent() && item.getMenuItemId() != null)
+                .toList();
+
+        List<Long> menuItemIds = billableItems.stream()
+                .map(OrderItem::getMenuItemId)
+                .distinct()
+                .toList();
+
+        Map<Long, MenuItemData> menuItemMap = menuService.getMenuItemsBulk(menuItemIds).stream()
+                .collect(Collectors.toMap(MenuItemData::id, Function.identity()));
+
+        List<OrderItemSnapshot> snapshots = billableItems.stream()
+                .map(item -> {
+                    MenuItemData m = menuItemMap.get(item.getMenuItemId());
+                    if (m == null) return null;
+                    return new OrderItemSnapshot(
+                            item.getId(),
+                            m.id(),
+                            m.name(),
+                            m.imageUrl(),
+                            item.getQuantity(),
+                            item.getNote(),
+                            m.cookTime() != null ? m.cookTime() : 0
+                    );
+                })
+                .filter(Objects::nonNull)
+                .toList();
+
+        return new OrderConfirmedEvent(order.getId(), order.getTableId(), order.getNote(), snapshots);
     }
 
     private record RevisionActor(RevisionSource source, Long staffId, String qrSessionId) {

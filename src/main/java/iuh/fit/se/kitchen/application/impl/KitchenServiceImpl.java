@@ -4,22 +4,19 @@ import iuh.fit.se.kitchen.domain.BatchPerformance;
 import iuh.fit.se.kitchen.api.dto.KitchenBatchResponse;
 import iuh.fit.se.kitchen.api.dto.KitchenTaskResponse;
 import iuh.fit.se.kitchen.application.KitchenService;
+import iuh.fit.se.kitchen.application.KitchenTaskCookData;
 import iuh.fit.se.kitchen.domain.KitchenBatch;
 import iuh.fit.se.kitchen.domain.KitchenBatchItem;
 import iuh.fit.se.kitchen.domain.KitchenBatchStatus;
 import iuh.fit.se.kitchen.domain.KitchenTask;
 import iuh.fit.se.kitchen.domain.KitchenTaskStatus;
-import iuh.fit.se.kitchen.infrastructure.BatchPerformanceRepository;
-import iuh.fit.se.kitchen.infrastructure.KitchenBatchItemRepository;
-import iuh.fit.se.kitchen.infrastructure.KitchenBatchRepository;
-import iuh.fit.se.kitchen.infrastructure.KitchenTaskRepository;
-import iuh.fit.se.menu.domain.MenuItem;
-import iuh.fit.se.menu.infrastructure.MenuItemRepository;
+import iuh.fit.se.kitchen.repository.BatchPerformanceRepository;
+import iuh.fit.se.kitchen.repository.KitchenBatchItemRepository;
+import iuh.fit.se.kitchen.repository.KitchenBatchRepository;
+import iuh.fit.se.kitchen.repository.KitchenTaskRepository;
 import iuh.fit.se.ordering.application.OrderingService;
-import iuh.fit.se.ordering.domain.Order;
-import iuh.fit.se.ordering.domain.OrderItem;
-import iuh.fit.se.ordering.infrastructure.OrderRepository;
-import iuh.fit.se.ordering.infrastructure.OrderItemRepository;
+import iuh.fit.se.shared.event.OrderConfirmedEvent;
+import iuh.fit.se.shared.event.OrderItemSnapshot;
 import iuh.fit.se.shared.ai.AiClient;
 import iuh.fit.se.shared.ai.AiOperation;
 import iuh.fit.se.shared.ai.client.dto.KitchenBatchingRequest;
@@ -60,9 +57,6 @@ public class KitchenServiceImpl implements KitchenService {
     private final KitchenBatchItemRepository kitchenBatchItemRepository;
     private final BatchPerformanceRepository batchPerformanceRepository;
     private final KitchenBatchRepository kitchenBatchRepository;
-    private final OrderRepository orderRepository;
-    private final OrderItemRepository orderItemRepository;
-    private final MenuItemRepository menuItemRepository;
     private final OrderingService orderingService;
     private final AiClient aiClient;
     private final ApplicationEventPublisher eventPublisher;
@@ -73,9 +67,6 @@ public class KitchenServiceImpl implements KitchenService {
             KitchenBatchItemRepository kitchenBatchItemRepository,
             BatchPerformanceRepository batchPerformanceRepository,
             KitchenBatchRepository kitchenBatchRepository,
-                OrderRepository orderRepository,
-            OrderItemRepository orderItemRepository,
-                MenuItemRepository menuItemRepository,
             OrderingService orderingService,
             AiClient aiClient,
             ApplicationEventPublisher eventPublisher,
@@ -85,9 +76,6 @@ public class KitchenServiceImpl implements KitchenService {
         this.kitchenBatchItemRepository = kitchenBatchItemRepository;
         this.batchPerformanceRepository = batchPerformanceRepository;
         this.kitchenBatchRepository = kitchenBatchRepository;
-        this.orderRepository = orderRepository;
-        this.orderItemRepository = orderItemRepository;
-        this.menuItemRepository = menuItemRepository;
         this.orderingService = orderingService;
         this.aiClient = aiClient;
         this.eventPublisher = eventPublisher;
@@ -351,28 +339,13 @@ public class KitchenServiceImpl implements KitchenService {
     }
 
     @Override
-    public List<KitchenTaskResponse> createTasksForOrder(Long orderId, List<Long> orderItemIds) {
-        if (orderItemIds == null || orderItemIds.isEmpty()) {
+    public List<KitchenTaskResponse> createTasksForOrder(OrderConfirmedEvent event) {
+        List<OrderItemSnapshot> snapshots = event.getItems();
+        if (snapshots == null || snapshots.isEmpty()) {
             return List.of();
         }
 
-        Order order = getOrderEntity(orderId);
-        List<OrderItem> orderItems = orderItemRepository.findAllById(orderItemIds);
-        Map<Long, OrderItem> orderItemsById = new LinkedHashMap<>();
-        for (OrderItem orderItem : orderItems) {
-            orderItemsById.put(orderItem.getId(), orderItem);
-        }
-
-        List<Long> menuItemIds = orderItems.stream()
-                .map(OrderItem::getMenuItemId)
-                .filter(menuItemId -> menuItemId != null)
-                .distinct()
-                .toList();
-        List<MenuItem> menuItems = menuItemRepository.findAllById(menuItemIds);
-        Map<Long, MenuItem> menuItemsById = new LinkedHashMap<>();
-        for (MenuItem menuItem : menuItems) {
-            menuItemsById.put(menuItem.getId(), menuItem);
-        }
+        List<Long> orderItemIds = snapshots.stream().map(OrderItemSnapshot::orderItemId).toList();
 
         List<KitchenTask> existingTasks = kitchenTaskRepository.findAllByOrderItemIdIn(orderItemIds);
         Map<Long, KitchenTask> existingByOrderItemId = new LinkedHashMap<>();
@@ -381,32 +354,22 @@ public class KitchenServiceImpl implements KitchenService {
         }
 
         List<KitchenTask> tasksToCreate = new ArrayList<>();
-        for (Long orderItemId : orderItemIds) {
-            if (existingByOrderItemId.containsKey(orderItemId)) {
-                continue;
-            }
-
-            OrderItem orderItem = orderItemsById.get(orderItemId);
-            if (orderItem == null || orderItem.getMenuItemId() == null) {
-                continue;
-            }
-
-            MenuItem menuItem = menuItemsById.get(orderItem.getMenuItemId());
-            if (menuItem == null) {
+        for (OrderItemSnapshot snapshot : snapshots) {
+            if (existingByOrderItemId.containsKey(snapshot.orderItemId())) {
                 continue;
             }
 
             tasksToCreate.add(KitchenTask.create(
-                    order.getId(),
-                    order.getTableId(),
-                    orderItem.getId(),
-                    menuItem.getId(),
-                    menuItem.getName(),
-                    menuItem.getImageUrl(),
-                    orderItem.getQuantity(),
-                    orderItem.getNote(),
-                    order.getNote(),
-                    menuItem.getCookTime()
+                    event.getOrderId(),
+                    event.getTableId(),
+                    snapshot.orderItemId(),
+                    snapshot.menuItemId(),
+                    snapshot.menuItemName(),
+                    snapshot.menuItemImageUrl(),
+                    snapshot.quantity(),
+                    snapshot.note(),
+                    event.getOrderNote(),
+                    snapshot.cookTime()
             ));
         }
 
@@ -514,10 +477,6 @@ public class KitchenServiceImpl implements KitchenService {
         return Math.max(0, (int) Math.round(estimatedSavingMinutes));
     }
 
-    private Order getOrderEntity(Long orderId) {
-        return orderRepository.findById(orderId)
-                .orElseThrow(() -> new ResourceNotFoundException("Order", orderId));
-    }
 
     private BigDecimal estimateAiConfidence(int quantity) {
         BigDecimal base = BigDecimal.valueOf(0.55d + (Math.max(0, quantity - 2) * 0.10d));
@@ -586,6 +545,17 @@ public class KitchenServiceImpl implements KitchenService {
         }
 
         return Math.max(actualMinutes, baselineFromTasks);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<KitchenTaskCookData> getRecentCompletedTasksForMenuItem(Long menuItemId, int limit) {
+        return kitchenTaskRepository
+                .findTop10ByMenuItemIdAndStatusOrderByCompletedAtDesc(menuItemId, KitchenTaskStatus.DONE)
+                .stream()
+                .limit(limit)
+                .map(task -> new KitchenTaskCookData(task.getActualCookSeconds()))
+                .toList();
     }
 
 }

@@ -36,9 +36,13 @@ public interface MenuService {
 
     List<MenuItemResponse> getAvailableItemsByCategory(Long categoryId);
 
-    MenuItemDTO getItem(Long id);
+    MenuItemData getItem(Long id);
 
-    MenuItemDTO updateMenuItemImage(Long id, MultipartFile file);
+    List<MenuItemData> getMenuItemsBulk(List<Long> ids);
+
+    List<MenuItemPricingData> getAllMenuItemsForTaxPreview();
+
+    MenuItemManagerDetailResponse updateMenuItemImage(Long id, MultipartFile file);
 
     MenuItemManagerDetailResponse createMenuItem(CreateMenuItemRequest request);
 
@@ -68,7 +72,7 @@ public interface MenuService {
 
     ComboGenerateResponse generateComboSuggestions(ComboGenerateRequest request);
 
-    MenuItemAvailabilityDTO checkIngredientAvailability(Long menuItemId, int quantity);
+    MenuItemAvailability checkIngredientAvailability(Long menuItemId, int quantity);
 
     CookTimeSuggestionResponse getSuggestedCookTime(Long menuItemId);
 

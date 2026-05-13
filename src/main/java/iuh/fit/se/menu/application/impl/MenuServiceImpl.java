@@ -1,9 +1,10 @@
 package iuh.fit.se.menu.application.impl;
 
-import iuh.fit.se.inventory.domain.Ingredient;
-import iuh.fit.se.inventory.infrastructure.IngredientRepository;
-import iuh.fit.se.kitchen.infrastructure.KitchenTaskRepository;
-import iuh.fit.se.analytics.infrastructure.OrderEventRepository;
+import iuh.fit.se.analytics.application.AnalyticsService;
+import iuh.fit.se.inventory.application.IngredientData;
+import iuh.fit.se.inventory.application.InventoryService;
+import iuh.fit.se.kitchen.application.KitchenService;
+import iuh.fit.se.kitchen.application.KitchenTaskCookData;
 import iuh.fit.se.menu.api.dto.CustomerMenuCategoryResponse;
 import iuh.fit.se.menu.api.dto.CustomerMenuItemResponse;
 import iuh.fit.se.menu.api.dto.CustomerTrendingResponse;
@@ -23,8 +24,9 @@ import iuh.fit.se.menu.api.dto.manager.UpdateMenuItemRequest;
 import iuh.fit.se.menu.api.dto.manager.UpsertFixedComboRequest;
 import iuh.fit.se.menu.api.dto.manager.UpsertPickComboRequest;
 import iuh.fit.se.menu.api.dto.manager.UpsertRecipeRequest;
-import iuh.fit.se.menu.application.MenuItemAvailabilityDTO;
-import iuh.fit.se.menu.application.MenuItemDTO;
+import iuh.fit.se.menu.application.MenuItemAvailability;
+import iuh.fit.se.menu.application.MenuItemData;
+import iuh.fit.se.menu.application.MenuItemPricingData;
 import iuh.fit.se.menu.application.MenuService;
 import iuh.fit.se.menu.domain.ComboFixedComponent;
 import iuh.fit.se.menu.domain.ComboKind;
@@ -34,12 +36,12 @@ import iuh.fit.se.menu.domain.MenuCategory;
 import iuh.fit.se.menu.domain.MenuItem;
 import iuh.fit.se.menu.domain.MenuItemIngredient;
 import iuh.fit.se.menu.domain.MenuItemType;
-import iuh.fit.se.menu.infrastructure.ComboFixedComponentRepository;
-import iuh.fit.se.menu.infrastructure.ComboPickSlotItemRepository;
-import iuh.fit.se.menu.infrastructure.ComboPickSlotRepository;
-import iuh.fit.se.menu.infrastructure.MenuCategoryRepository;
-import iuh.fit.se.menu.infrastructure.MenuItemIngredientRepository;
-import iuh.fit.se.menu.infrastructure.MenuItemRepository;
+import iuh.fit.se.menu.repository.ComboFixedComponentRepository;
+import iuh.fit.se.menu.repository.ComboPickSlotItemRepository;
+import iuh.fit.se.menu.repository.ComboPickSlotRepository;
+import iuh.fit.se.menu.repository.MenuCategoryRepository;
+import iuh.fit.se.menu.repository.MenuItemIngredientRepository;
+import iuh.fit.se.menu.repository.MenuItemRepository;
 import iuh.fit.se.shared.ai.AiClient;
 import iuh.fit.se.shared.ai.AiOperation;
 import iuh.fit.se.shared.ai.client.dto.ComboGenerateRequest;
@@ -67,6 +69,7 @@ import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
@@ -88,11 +91,11 @@ public class MenuServiceImpl implements MenuService {
     private final ComboPickSlotItemRepository comboPickSlotItemRepository;
     private final ImageStorageService imageStorageService;
     private final MenuItemIngredientRepository menuItemIngredientRepository;
-    private final IngredientRepository ingredientRepository;
+    private final InventoryService inventoryService;
     private final AiClient aiClient;
     private final TaskExecutor aiTaskExecutor;
-    private final KitchenTaskRepository kitchenTaskRepository;
-    private final OrderEventRepository orderEventRepository;
+    private final KitchenService kitchenService;
+    private final AnalyticsService analyticsService;
     private final StringRedisTemplate stringRedisTemplate;
 
     public MenuServiceImpl(
@@ -103,11 +106,11 @@ public class MenuServiceImpl implements MenuService {
             ComboPickSlotItemRepository comboPickSlotItemRepository,
             ImageStorageService imageStorageService,
             MenuItemIngredientRepository menuItemIngredientRepository,
-            IngredientRepository ingredientRepository,
+            InventoryService inventoryService,
             AiClient aiClient,
             @Qualifier("aiTaskExecutor") TaskExecutor aiTaskExecutor,
-            KitchenTaskRepository kitchenTaskRepository,
-            OrderEventRepository orderEventRepository,
+            @Lazy KitchenService kitchenService,
+            AnalyticsService analyticsService,
             StringRedisTemplate stringRedisTemplate
     ) {
         this.menuCategoryRepository = menuCategoryRepository;
@@ -117,11 +120,11 @@ public class MenuServiceImpl implements MenuService {
         this.comboPickSlotItemRepository = comboPickSlotItemRepository;
         this.imageStorageService = imageStorageService;
         this.menuItemIngredientRepository = menuItemIngredientRepository;
-        this.ingredientRepository = ingredientRepository;
+        this.inventoryService = inventoryService;
         this.aiClient = aiClient;
         this.aiTaskExecutor = aiTaskExecutor;
-        this.kitchenTaskRepository = kitchenTaskRepository;
-        this.orderEventRepository = orderEventRepository;
+        this.kitchenService = kitchenService;
+        this.analyticsService = analyticsService;
         this.stringRedisTemplate = stringRedisTemplate;
     }
 
@@ -190,12 +193,7 @@ public class MenuServiceImpl implements MenuService {
         // Order counts for the last 7 days
         Instant from = Instant.now().minus(7, ChronoUnit.DAYS);
         Instant to = Instant.now();
-        Map<Long, Long> orderCountByItemId = orderEventRepository.findOrderCountsByItem(from, to)
-                .stream()
-                .collect(Collectors.toMap(
-                        OrderEventRepository.ItemOrderCountProjection::getMenuItemId,
-                        OrderEventRepository.ItemOrderCountProjection::getOrderCount
-                ));
+        Map<Long, Long> orderCountByItemId = analyticsService.getOrderCountsByItem(from, to);
 
         // CTR from shared Redis — written by AI service's feedback endpoint
         Map<Long, Double> ctrByItemId = readCtrFromRedis(allItems);
@@ -290,14 +288,40 @@ public class MenuServiceImpl implements MenuService {
 
     @Override
     @Cacheable(value = "menu", key = "'item:' + #id")
-    public MenuItemDTO getItem(Long id) {
-        return MenuItemDTO.from(getActiveMenuItem(id));
+    public MenuItemData getItem(Long id) {
+        return MenuItemData.from(getActiveMenuItem(id));
+    }
+
+    @Override
+    public List<MenuItemData> getMenuItemsBulk(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) return List.of();
+        return menuItemRepository.findAllById(ids).stream()
+                .map(MenuItemData::from)
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<MenuItemPricingData> getAllMenuItemsForTaxPreview() {
+        List<MenuItem> items = menuItemRepository.findAllByDeletedAtIsNullOrderByIdAsc();
+        Map<Long, String> categoryNames = menuCategoryRepository.findAll().stream()
+                .collect(Collectors.toMap(MenuCategory::getId, MenuCategory::getName));
+        return items.stream()
+                .map(item -> new MenuItemPricingData(
+                        item.getId(),
+                        item.getName(),
+                        categoryNames.getOrDefault(item.getCategoryId(), ""),
+                        item.getPrice() == null ? BigDecimal.ZERO : item.getPrice().toBigDecimal(),
+                        item.getItemTaxMode(),
+                        item.getItemTaxRateBps()
+                ))
+                .toList();
     }
 
     @Override
     @Transactional
     @CacheEvict(value = "menu", allEntries = true)
-    public MenuItemDTO updateMenuItemImage(Long id, MultipartFile file) {
+    public MenuItemManagerDetailResponse updateMenuItemImage(Long id, MultipartFile file) {
         MenuItem menuItem = getActiveMenuItem(id);
         String previousPublicId = menuItem.getImagePublicId();
 
@@ -306,7 +330,7 @@ public class MenuServiceImpl implements MenuService {
             menuItem.updateImage(uploadedImage.url(), uploadedImage.publicId());
             MenuItem savedMenuItem = menuItemRepository.save(menuItem);
             deleteObsoleteImage(previousPublicId, uploadedImage.publicId());
-            return MenuItemDTO.from(savedMenuItem);
+            return MenuItemManagerDetailResponse.fromBase(savedMenuItem);
         } catch (RuntimeException ex) {
             safeDelete(uploadedImage.publicId());
             throw ex;
@@ -684,8 +708,7 @@ public class MenuServiceImpl implements MenuService {
 
         List<MenuItemIngredient> entries = request.items().stream()
                 .map(item -> {
-                    ingredientRepository.findByIdAndDeletedAtIsNull(item.ingredientId())
-                            .orElseThrow(() -> new ResourceNotFoundException("Ingredient", item.ingredientId()));
+                    inventoryService.validateIngredientExists(item.ingredientId());
                     return MenuItemIngredient.create(menuItemId, item.ingredientId(), item.quantity());
                 })
                 .toList();
@@ -704,16 +727,16 @@ public class MenuServiceImpl implements MenuService {
         }
 
         List<Long> ingredientIds = entries.stream().map(MenuItemIngredient::getIngredientId).toList();
-        Map<Long, Ingredient> ingredientMap = ingredientRepository.findAllById(ingredientIds).stream()
-                .collect(Collectors.toMap(Ingredient::getId, Function.identity()));
+        Map<Long, IngredientData> ingredientMap = inventoryService.getIngredientsData(ingredientIds).stream()
+                .collect(Collectors.toMap(IngredientData::id, Function.identity()));
 
         return entries.stream()
                 .map(entry -> {
-                    Ingredient ingredient = ingredientMap.get(entry.getIngredientId());
+                    IngredientData ingredient = ingredientMap.get(entry.getIngredientId());
                     return RecipeItemResponse.builder()
                             .ingredientId(entry.getIngredientId())
-                            .ingredientName(ingredient != null ? ingredient.getName() : null)
-                            .unit(ingredient != null ? ingredient.getUnit() : null)
+                            .ingredientName(ingredient != null ? ingredient.name() : null)
+                            .unit(ingredient != null ? ingredient.unit() : null)
                             .quantity(entry.getQuantity())
                             .build();
                 })
@@ -738,34 +761,34 @@ public class MenuServiceImpl implements MenuService {
     // ========================== Ingredient Availability ==========================
 
     @Override
-    public MenuItemAvailabilityDTO checkIngredientAvailability(Long menuItemId, int quantity) {
+    public MenuItemAvailability checkIngredientAvailability(Long menuItemId, int quantity) {
         List<MenuItemIngredient> recipe = menuItemIngredientRepository.findAllByMenuItemId(menuItemId);
 
         if (recipe.isEmpty()) {
-            return MenuItemAvailabilityDTO.available(menuItemId);
+            return MenuItemAvailability.available(menuItemId);
         }
 
         List<Long> ingredientIds = recipe.stream().map(MenuItemIngredient::getIngredientId).toList();
-        Map<Long, Ingredient> ingredientMap = ingredientRepository.findAllById(ingredientIds).stream()
-                .collect(Collectors.toMap(Ingredient::getId, Function.identity()));
+        Map<Long, IngredientData> ingredientMap = inventoryService.getIngredientsData(ingredientIds).stream()
+                .collect(Collectors.toMap(IngredientData::id, Function.identity()));
 
         List<String> shortages = new ArrayList<>();
         for (MenuItemIngredient r : recipe) {
-            Ingredient ing = ingredientMap.get(r.getIngredientId());
-            if (ing == null || ing.getDeletedAt() != null) {
+            IngredientData ing = ingredientMap.get(r.getIngredientId());
+            if (ing == null) {
                 shortages.add("Unknown ingredient #" + r.getIngredientId());
                 continue;
             }
             BigDecimal needed = r.getQuantity().multiply(BigDecimal.valueOf(quantity));
-            if (ing.getCurrentQty().compareTo(needed) < 0) {
-                shortages.add(ing.getName());
+            if (ing.currentQty().compareTo(needed) < 0) {
+                shortages.add(ing.name());
             }
         }
 
         if (shortages.isEmpty()) {
-            return MenuItemAvailabilityDTO.available(menuItemId);
+            return MenuItemAvailability.available(menuItemId);
         }
-        return MenuItemAvailabilityDTO.insufficient(menuItemId, shortages);
+        return MenuItemAvailability.insufficient(menuItemId, shortages);
     }
 
     // ========================== Cook Time Suggestion ==========================
@@ -774,11 +797,10 @@ public class MenuServiceImpl implements MenuService {
     public CookTimeSuggestionResponse getSuggestedCookTime(Long menuItemId) {
         MenuItem menuItem = getActiveMenuItem(menuItemId);
 
-        List<iuh.fit.se.kitchen.domain.KitchenTask> recentTasks = kitchenTaskRepository
-                .findTop10ByMenuItemIdAndStatusOrderByCompletedAtDesc(menuItemId, iuh.fit.se.kitchen.domain.KitchenTaskStatus.DONE);
+        List<KitchenTaskCookData> recentTasks = kitchenService.getRecentCompletedTasksForMenuItem(menuItemId, 10);
 
         List<Integer> actualSeconds = recentTasks.stream()
-                .map(iuh.fit.se.kitchen.domain.KitchenTask::getActualCookSeconds)
+                .map(KitchenTaskCookData::actualCookSeconds)
                 .filter(seconds -> seconds != null && seconds > 0)
                 .sorted()
                 .toList();

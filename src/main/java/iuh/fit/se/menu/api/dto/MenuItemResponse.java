@@ -1,6 +1,6 @@
 package iuh.fit.se.menu.api.dto;
 
-import iuh.fit.se.menu.application.MenuItemDTO;
+import iuh.fit.se.menu.application.MenuItemData;
 import iuh.fit.se.menu.domain.ComboKind;
 import iuh.fit.se.menu.domain.MenuItem;
 import iuh.fit.se.menu.domain.MenuItemType;
@@ -45,7 +45,7 @@ public class MenuItemResponse {
                 .build();
     }
 
-    public static MenuItemResponse from(MenuItemDTO menuItem) {
+    public static MenuItemResponse from(MenuItemData menuItem) {
         return MenuItemResponse.builder()
                 .id(menuItem.id())
                 .name(menuItem.name())

@@ -1,6 +1,6 @@
 package iuh.fit.se.table.api.dto;
 
-import iuh.fit.se.table.application.TableQrCodeDTO;
+import iuh.fit.se.table.application.TableQrCodeData;
 import java.time.Instant;
 
 public record TableQrCodeResponse(
@@ -13,7 +13,7 @@ public record TableQrCodeResponse(
         Instant lastIssuedSessionAt
 ) {
 
-    public static TableQrCodeResponse from(TableQrCodeDTO dto) {
+    public static TableQrCodeResponse from(TableQrCodeData dto) {
         return new TableQrCodeResponse(
                 dto.tableId(),
                 dto.tableCode(),

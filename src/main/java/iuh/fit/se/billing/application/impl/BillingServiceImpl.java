@@ -19,10 +19,10 @@ import iuh.fit.se.billing.domain.TxnStatus;
 import iuh.fit.se.billing.domain.TxnType;
 import iuh.fit.se.billing.domain.PaymentWebhook;
 import iuh.fit.se.billing.domain.VnpayMessageMapper;
-import iuh.fit.se.billing.infrastructure.PaymentRepository;
-import iuh.fit.se.billing.infrastructure.PaymentTransactionRepository;
-import iuh.fit.se.billing.infrastructure.PaymentWebhookRepository;
-import iuh.fit.se.billing.infrastructure.RefundRepository;
+import iuh.fit.se.billing.repository.PaymentRepository;
+import iuh.fit.se.billing.repository.PaymentTransactionRepository;
+import iuh.fit.se.billing.repository.PaymentWebhookRepository;
+import iuh.fit.se.billing.repository.RefundRepository;
 import iuh.fit.se.ordering.api.dto.OrderResponse;
 import iuh.fit.se.billing.api.dto.InvoiceResponse;
 import iuh.fit.se.billing.api.dto.InvoiceItem;
@@ -33,7 +33,7 @@ import iuh.fit.se.shared.exception.DomainException;
 import iuh.fit.se.shared.exception.ResourceNotFoundException;
 import iuh.fit.se.shared.security.JwtPrincipal;
 import iuh.fit.se.shared.util.IdempotencyUtil;
-import iuh.fit.se.shift.infrastructure.CashierShiftRepository;
+import iuh.fit.se.shift.application.ShiftService;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.net.URLEncoder;
@@ -51,6 +51,7 @@ import java.util.Set;
 import java.util.TreeMap;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.core.ParameterizedTypeReference;
@@ -96,7 +97,7 @@ public class BillingServiceImpl implements BillingService {
     private final PaymentIdempotencyService paymentIdempotencyService;
     private final OrderingService orderingService;
     private final WebhookService webhookService;
-    private final CashierShiftRepository cashierShiftRepository;
+    private final ShiftService shiftService;
     private final ApplicationEventPublisher eventPublisher;
     private final ObjectMapper objectMapper;
     private final RestClient restClient;
@@ -131,10 +132,10 @@ public class BillingServiceImpl implements BillingService {
             PaymentWebhookRepository paymentWebhookRepository,
             PaymentTransactionRepository paymentTransactionRepository,
             RefundRepository refundRepository,
-                PaymentIdempotencyService paymentIdempotencyService,
+            PaymentIdempotencyService paymentIdempotencyService,
             OrderingService orderingService,
             WebhookService webhookService,
-            CashierShiftRepository cashierShiftRepository,
+            @Autowired @org.springframework.context.annotation.Lazy ShiftService shiftService,
             ApplicationEventPublisher eventPublisher,
             ObjectMapper objectMapper
     ) {
@@ -146,7 +147,7 @@ public class BillingServiceImpl implements BillingService {
         this.paymentIdempotencyService = paymentIdempotencyService;
         this.orderingService = orderingService;
         this.webhookService = webhookService;
-        this.cashierShiftRepository = cashierShiftRepository;
+        this.shiftService = shiftService;
         this.eventPublisher = eventPublisher;
         this.objectMapper = objectMapper;
         this.restClient = RestClient.builder().build();
@@ -790,10 +791,7 @@ public class BillingServiceImpl implements BillingService {
             throw new DomainException("shiftId is required");
         }
 
-        boolean validOpenShift = cashierShiftRepository.findById(shiftId)
-                .map(shift -> shift.getClosedAt() == null)
-                .orElse(false);
-        if (!validOpenShift) {
+        if (!shiftService.isShiftOpen(shiftId)) {
             throw new DomainException("Payment requires an existing open shift");
         }
     }

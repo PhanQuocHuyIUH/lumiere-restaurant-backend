@@ -8,7 +8,7 @@ import iuh.fit.se.shift.api.dto.OpenShiftRequest;
 import iuh.fit.se.shift.api.dto.ShiftResponse;
 import iuh.fit.se.shift.application.ShiftService;
 import iuh.fit.se.shift.domain.CashierShift;
-import iuh.fit.se.shift.infrastructure.CashierShiftRepository;
+import iuh.fit.se.shift.repository.CashierShiftRepository;
 import iuh.fit.se.shared.exception.DomainException;
 import iuh.fit.se.shared.exception.ResourceNotFoundException;
 import iuh.fit.se.shared.security.JwtPrincipal;
@@ -101,6 +101,14 @@ public class ShiftServiceImpl implements ShiftService {
     @Override
     public List<ShiftResponse> listAll() {
         return repository.findAll().stream().map(this::map).collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public boolean isShiftOpen(Long shiftId) {
+        return repository.findById(shiftId)
+                .map(shift -> shift.getClosedAt() == null)
+                .orElse(false);
     }
 
     private ShiftResponse map(CashierShift s) {

@@ -3,7 +3,7 @@ package iuh.fit.se.table.api;
 import iuh.fit.se.table.api.dto.CreateTableRequest;
 import iuh.fit.se.table.api.dto.TableResponse;
 import iuh.fit.se.table.api.dto.UpdateTableRequest;
-import iuh.fit.se.table.application.TableDTO;
+import iuh.fit.se.table.application.TableData;
 import iuh.fit.se.table.application.TableService;
 import iuh.fit.se.shared.response.ApiResponse;
 import jakarta.validation.Valid;
@@ -33,7 +33,7 @@ public class ManagerTableController {
     public ResponseEntity<ApiResponse<TableResponse>> create(
             @Valid @RequestBody CreateTableRequest request
     ) {
-        TableDTO created = tableService.createTable(request.floor(), request.tableNo(), request.capacity());
+        TableData created = tableService.createTable(request.floor(), request.tableNo(), request.capacity());
         return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.ok("Table created", TableResponse.from(created)));
     }
 
@@ -42,7 +42,7 @@ public class ManagerTableController {
             @PathVariable("tableCode") String tableCode,
             @Valid @RequestBody UpdateTableRequest request
     ) {
-        TableDTO updated = tableService.updateTable(tableCode, request.floor(), request.tableNo(), request.capacity());
+        TableData updated = tableService.updateTable(tableCode, request.floor(), request.tableNo(), request.capacity());
         return ResponseEntity.ok(ApiResponse.ok("Table updated", TableResponse.from(updated)));
     }
 

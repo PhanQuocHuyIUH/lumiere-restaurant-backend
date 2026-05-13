@@ -7,12 +7,13 @@ import iuh.fit.se.inventory.api.dto.IngredientResponse;
 import iuh.fit.se.inventory.api.dto.LowStockAlert;
 import iuh.fit.se.inventory.api.dto.StockTransactionResponse;
 import iuh.fit.se.inventory.api.dto.UpdateIngredientRequest;
+import iuh.fit.se.inventory.application.IngredientData;
 import iuh.fit.se.inventory.application.InventoryService;
 import iuh.fit.se.inventory.domain.Ingredient;
 import iuh.fit.se.inventory.domain.StockTransaction;
 import iuh.fit.se.inventory.domain.StockTxnType;
-import iuh.fit.se.inventory.infrastructure.IngredientRepository;
-import iuh.fit.se.inventory.infrastructure.StockTransactionRepository;
+import iuh.fit.se.inventory.repository.IngredientRepository;
+import iuh.fit.se.inventory.repository.StockTransactionRepository;
 import iuh.fit.se.shared.exception.ResourceNotFoundException;
 import java.math.BigDecimal;
 import java.util.List;
@@ -158,6 +159,22 @@ public class InventoryServiceImpl implements InventoryService {
         getActiveIngredient(ingredientId);
         return stockTransactionRepository.findAllByIngredientIdOrderByCreatedAtDesc(ingredientId).stream()
                 .map(StockTransactionResponse::from)
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public void validateIngredientExists(Long id) {
+        getActiveIngredient(id);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<IngredientData> getIngredientsData(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) return List.of();
+        return ingredientRepository.findAllById(ids).stream()
+                .filter(i -> i.getDeletedAt() == null)
+                .map(i -> new IngredientData(i.getId(), i.getName(), i.getUnit(), i.getCurrentQty()))
                 .toList();
     }
 

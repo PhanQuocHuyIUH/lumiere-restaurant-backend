@@ -3,7 +3,7 @@ package iuh.fit.se.table.application.impl;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import iuh.fit.se.table.domain.QrSession;
-import iuh.fit.se.table.infrastructure.QrSessionRepository;
+import iuh.fit.se.table.repository.QrSessionRepository;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;

@@ -30,4 +30,9 @@ public interface InventoryService {
     List<IngredientResponse> getLowStockIngredients();
 
     List<StockTransactionResponse> getStockHistory(Long ingredientId);
+
+    // Cross-module queries (used by menu module)
+    void validateIngredientExists(Long id);
+
+    List<IngredientData> getIngredientsData(List<Long> ids);
 }

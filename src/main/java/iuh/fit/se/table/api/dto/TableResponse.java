@@ -1,6 +1,6 @@
 package iuh.fit.se.table.api.dto;
 
-import iuh.fit.se.table.application.TableDTO;
+import iuh.fit.se.table.application.TableData;
 import iuh.fit.se.table.domain.RestaurantTable;
 import iuh.fit.se.table.domain.TableStatus;
 import java.time.Instant;
@@ -33,7 +33,7 @@ public class TableResponse {
                 .build();
     }
 
-    public static TableResponse from(TableDTO table) {
+    public static TableResponse from(TableData table) {
         return TableResponse.builder()
                 .id(table.id())
             .tableCode(table.tableCode())

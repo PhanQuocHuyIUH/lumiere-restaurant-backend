@@ -11,4 +11,5 @@ public interface ShiftService {
     CloseShiftResponse closeShift(Long shiftId, CloseShiftRequest request);
     ShiftResponse getCurrentShift();
     List<ShiftResponse> listAll();
+    boolean isShiftOpen(Long shiftId);
 }

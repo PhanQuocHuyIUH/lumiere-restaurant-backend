@@ -1,13 +1,12 @@
 package iuh.fit.se.shared.tax.application.impl;
 
-import iuh.fit.se.menu.domain.MenuCategory;
-import iuh.fit.se.menu.domain.MenuItem;
-import iuh.fit.se.menu.infrastructure.MenuCategoryRepository;
-import iuh.fit.se.menu.infrastructure.MenuItemRepository;
+import iuh.fit.se.menu.application.MenuItemPricingData;
+import iuh.fit.se.menu.application.MenuService;
+import iuh.fit.se.shared.domain.Money;
 import iuh.fit.se.shared.domain.PricingSnapshot;
 import iuh.fit.se.shared.domain.TaxMode;
 import iuh.fit.se.shared.settings.domain.SystemSetting;
-import iuh.fit.se.shared.settings.infrastructure.SystemSettingRepository;
+import iuh.fit.se.shared.settings.repository.SystemSettingRepository;
 import iuh.fit.se.shared.tax.api.dto.MenuItemPricingPreviewResponse;
 import iuh.fit.se.shared.tax.api.dto.TaxConfigResponse;
 import iuh.fit.se.shared.tax.application.TaxConfigService;
@@ -15,8 +14,6 @@ import iuh.fit.se.shared.util.PricingEngine;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
-import java.util.stream.Collectors;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
@@ -32,19 +29,16 @@ public class TaxConfigServiceImpl implements TaxConfigService {
     static final String CACHE_KEY = "active";
 
     private final SystemSettingRepository settingRepo;
-    private final MenuItemRepository menuItemRepo;
-    private final MenuCategoryRepository categoryRepo;
+    private final MenuService menuService;
     private final PricingEngine pricingEngine;
 
     public TaxConfigServiceImpl(
             SystemSettingRepository settingRepo,
-            MenuItemRepository menuItemRepo,
-            MenuCategoryRepository categoryRepo,
+            MenuService menuService,
             PricingEngine pricingEngine
     ) {
         this.settingRepo = settingRepo;
-        this.menuItemRepo = menuItemRepo;
-        this.categoryRepo = categoryRepo;
+        this.menuService = menuService;
         this.pricingEngine = pricingEngine;
     }
 
@@ -84,22 +78,19 @@ public class TaxConfigServiceImpl implements TaxConfigService {
     public MenuItemPricingPreviewResponse previewMenuItemPricing() {
         TaxConfigDto config = getActive();
 
-        List<MenuItem> items = menuItemRepo.findAllByDeletedAtIsNullOrderByIdAsc();
-        Map<Long, String> categoryNames = categoryRepo.findAll().stream()
-                .collect(Collectors.toMap(MenuCategory::getId, MenuCategory::getName));
+        List<MenuItemPricingData> items = menuService.getAllMenuItemsForTaxPreview();
 
         List<MenuItemPricingPreviewResponse.ItemRow> rows = new ArrayList<>();
-        for (MenuItem item : items) {
-            TaxMode effectiveMode = item.getItemTaxMode() != null ? item.getItemTaxMode() : config.taxMode();
-            int effectiveRate = item.getItemTaxRateBps() != null ? item.getItemTaxRateBps() : config.taxRateBps();
+        for (MenuItemPricingData item : items) {
+            TaxMode effectiveMode = item.itemTaxMode() != null ? item.itemTaxMode() : config.taxMode();
+            int effectiveRate = item.itemTaxRateBps() != null ? item.itemTaxRateBps() : config.taxRateBps();
 
-            PricingSnapshot snap = pricingEngine.snapshot(item.getPrice(), effectiveMode, effectiveRate);
-            String category = categoryNames.getOrDefault(item.getCategoryId(), "");
+            PricingSnapshot snap = pricingEngine.snapshot(Money.of(item.price()), effectiveMode, effectiveRate);
 
             rows.add(new MenuItemPricingPreviewResponse.ItemRow(
-                    item.getId(),
-                    item.getName(),
-                    category,
+                    item.id(),
+                    item.name(),
+                    item.categoryName(),
                     effectiveMode,
                     effectiveRate,
                     snap.totalAmount().toBigDecimal(),

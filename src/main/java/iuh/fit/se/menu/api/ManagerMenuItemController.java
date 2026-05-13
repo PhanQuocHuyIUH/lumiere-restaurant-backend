@@ -25,7 +25,9 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 @RestController
 @RequestMapping("/manager/menu/items")
@@ -36,6 +38,15 @@ public class ManagerMenuItemController {
 
     public ManagerMenuItemController(MenuService menuService) {
         this.menuService = menuService;
+    }
+
+    @PutMapping("/{id}/image")
+    public ResponseEntity<ApiResponse<MenuItemManagerDetailResponse>> updateImage(
+            @PathVariable("id") Long id,
+            @RequestParam("file") MultipartFile file
+    ) {
+        MenuItemManagerDetailResponse updated = menuService.updateMenuItemImage(id, file);
+        return ResponseEntity.ok(ApiResponse.ok("Menu item image updated", updated));
     }
 
     @PostMapping

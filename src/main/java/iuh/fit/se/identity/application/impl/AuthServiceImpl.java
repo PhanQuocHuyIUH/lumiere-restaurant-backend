@@ -6,7 +6,7 @@ import iuh.fit.se.identity.api.dto.StaffResponse;
 import iuh.fit.se.identity.application.AuthService;
 import iuh.fit.se.identity.domain.Staff;
 import iuh.fit.se.identity.domain.StaffStatus;
-import iuh.fit.se.identity.infrastructure.StaffRepository;
+import iuh.fit.se.identity.repository.StaffRepository;
 import iuh.fit.se.shared.security.JwtService;
 import iuh.fit.se.shared.security.StaffUserDetails;
 import org.springframework.beans.factory.annotation.Value;

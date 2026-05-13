@@ -11,9 +11,9 @@ import iuh.fit.se.shared.exception.DomainException;
 import iuh.fit.se.shared.exception.ResourceNotFoundException;
 import iuh.fit.se.shared.storage.ImageStorageService;
 import iuh.fit.se.shared.storage.StoredImage;
-import iuh.fit.se.table.application.QrSessionTokenDTO;
-import iuh.fit.se.table.application.TableDTO;
-import iuh.fit.se.table.application.TableQrCodeDTO;
+import iuh.fit.se.table.application.QrSessionToken;
+import iuh.fit.se.table.application.TableData;
+import iuh.fit.se.table.application.TableQrCodeData;
 import iuh.fit.se.table.application.TableService;
 import iuh.fit.se.table.domain.QrSession;
 import iuh.fit.se.table.domain.QrSessionStatus;
@@ -21,9 +21,9 @@ import iuh.fit.se.table.domain.RestaurantTable;
 import iuh.fit.se.table.domain.TableQrCode;
 import iuh.fit.se.table.domain.TableQrCodeStatus;
 import iuh.fit.se.table.domain.TableStatus;
-import iuh.fit.se.table.infrastructure.QrSessionRepository;
-import iuh.fit.se.table.infrastructure.RestaurantTableRepository;
-import iuh.fit.se.table.infrastructure.TableQrCodeRepository;
+import iuh.fit.se.table.repository.QrSessionRepository;
+import iuh.fit.se.table.repository.RestaurantTableRepository;
+import iuh.fit.se.table.repository.TableQrCodeRepository;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.time.Duration;
@@ -37,6 +37,8 @@ import java.util.regex.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -77,31 +79,32 @@ public class TableServiceImpl implements TableService {
     }
 
     @Override
-    public List<TableDTO> getAllTables() {
+    @Cacheable(value = "tables", key = "'all'")
+    public List<TableData> getAllTables() {
         return restaurantTableRepository.findAllByDeletedAtIsNullOrderByFloorAscTableNoAsc()
                 .stream()
-                .map(TableDTO::from)
+                .map(TableData::from)
                 .toList();
     }
 
     @Override
-    public TableDTO getTableByCode(String tableCode) {
-        return TableDTO.from(getActiveTable(tableCode));
+    public TableData getTableByCode(String tableCode) {
+        return TableData.from(getActiveTable(tableCode));
     }
 
     @Override
-    public TableDTO getTableById(Long tableId) {
-        return TableDTO.from(getActiveTable(tableId));
+    public TableData getTableById(Long tableId) {
+        return TableData.from(getActiveTable(tableId));
     }
 
     @Override
-    public TableDTO getTableByQrKey(String qrKey) {
-        return TableDTO.from(getActiveTableByQrKey(qrKey));
+    public TableData getTableByQrKey(String qrKey) {
+        return TableData.from(getActiveTableByQrKey(qrKey));
     }
 
     @Override
     @Transactional
-    public QrSessionTokenDTO issueQrSession(String tableCode) {
+    public QrSessionToken issueQrSession(String tableCode) {
         RestaurantTable table = getActiveTable(tableCode);
         TableQrCode qrCode = getOrCreateQrCode(table);
 
@@ -146,7 +149,7 @@ public class TableServiceImpl implements TableService {
         qrCode.markIssuedSession();
         tableQrCodeRepository.save(qrCode);
 
-        return new QrSessionTokenDTO(session.getSessionId(), session.getExpiresAt());
+        return new QrSessionToken(session.getSessionId(), session.getExpiresAt());
     }
 
     @Override
@@ -181,7 +184,7 @@ public class TableServiceImpl implements TableService {
 
     @Override
     @Transactional
-    public TableQrCodeDTO getOrCreateTableQrCode(String tableCode) {
+    public TableQrCodeData getOrCreateTableQrCode(String tableCode) {
         RestaurantTable table = getActiveTable(tableCode);
         TableQrCode qrCode = getOrCreateQrCode(table);
         if (qrCode.getQrImageUrl() == null || qrCode.getQrImageUrl().isBlank()) {
@@ -192,7 +195,7 @@ public class TableServiceImpl implements TableService {
 
     @Override
     @Transactional
-    public TableQrCodeDTO rotateTableQrCode(String tableCode) {
+    public TableQrCodeData rotateTableQrCode(String tableCode) {
         RestaurantTable table = getActiveTable(tableCode);
         TableQrCode qrCode = tableQrCodeRepository.findByTableId(table.getId())
                 .orElseGet(() -> TableQrCode.create(table.getId(), generateQrKey(), Instant.now().plus(Duration.ofDays(90))));
@@ -242,7 +245,7 @@ public class TableServiceImpl implements TableService {
 
     @Override
     @Transactional
-    public TableDTO updateTableStatus(String tableCode, TableStatus newStatus) {
+    public TableData updateTableStatus(String tableCode, TableStatus newStatus) {
         RestaurantTable table = getActiveTable(tableCode);
 
         switch (newStatus) {
@@ -253,7 +256,7 @@ public class TableServiceImpl implements TableService {
         }
 
         RestaurantTable saved = restaurantTableRepository.save(table);
-        return TableDTO.from(saved);
+        return TableData.from(saved);
     }
 
     private RestaurantTable getActiveTableByQrKey(String qrKey) {
@@ -297,8 +300,8 @@ public class TableServiceImpl implements TableService {
         }
     }
 
-    private TableQrCodeDTO toTableQrCodeDto(RestaurantTable table, TableQrCode qrCode) {
-        return TableQrCodeDTO.from(qrCode, table.getTableCode(), qrCode.getQrImageUrl());
+    private TableQrCodeData toTableQrCodeDto(RestaurantTable table, TableQrCode qrCode) {
+        return TableQrCodeData.from(qrCode, table.getTableCode(), qrCode.getQrImageUrl());
     }
 
     private byte[] generateQrCodePng(String qrPayloadUrl) {
@@ -380,7 +383,8 @@ public class TableServiceImpl implements TableService {
 
     @Override
     @Transactional
-    public TableDTO createTable(int floor, int tableNo, int capacity) {
+    @CacheEvict(value = "tables", allEntries = true)
+    public TableData createTable(int floor, int tableNo, int capacity) {
         RestaurantTable table = RestaurantTable.builder()
                 .floor(floor)
                 .tableNo(tableNo)
@@ -388,20 +392,22 @@ public class TableServiceImpl implements TableService {
                 .status(TableStatus.AVAILABLE)
                 .build();
         RestaurantTable saved = restaurantTableRepository.save(table);
-        return TableDTO.from(saved);
+        return TableData.from(saved);
     }
 
     @Override
     @Transactional
-    public TableDTO updateTable(String tableCode, int floor, int tableNo, int capacity) {
+    @CacheEvict(value = "tables", allEntries = true)
+    public TableData updateTable(String tableCode, int floor, int tableNo, int capacity) {
         RestaurantTable table = getActiveTable(tableCode);
         table.updateLayout(capacity, floor, tableNo);
         RestaurantTable saved = restaurantTableRepository.save(table);
-        return TableDTO.from(saved);
+        return TableData.from(saved);
     }
 
     @Override
     @Transactional
+    @CacheEvict(value = "tables", allEntries = true)
     public void deleteTable(String tableCode) {
         RestaurantTable table = getActiveTable(tableCode);
         table.softDelete();
