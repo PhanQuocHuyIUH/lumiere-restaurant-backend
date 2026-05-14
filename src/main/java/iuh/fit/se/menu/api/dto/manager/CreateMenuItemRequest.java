@@ -33,8 +33,10 @@ public record CreateMenuItemRequest(
 
         ComboKind comboKind,
 
+        @NotNull(message = "itemTaxMode is required")
         TaxMode itemTaxMode,
 
+        @NotNull(message = "itemTaxRateBps is required")
         @Min(value = 0, message = "itemTaxRateBps must be >= 0")
         @Max(value = 10000, message = "itemTaxRateBps must be <= 10000")
         Integer itemTaxRateBps

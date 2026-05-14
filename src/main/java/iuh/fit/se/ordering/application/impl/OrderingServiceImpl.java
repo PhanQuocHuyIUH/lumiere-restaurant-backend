@@ -857,9 +857,9 @@ public class OrderingServiceImpl implements OrderingService {
             PricingSnapshot snap = pricingEngine.snapshot(grossSubtotal, effectiveMode, effectiveRate);
             item.applyTaxBreakdown(snap.subtotalAmount(), snap.taxAmount(), effectiveMode, effectiveRate);
 
-            netTotal   += snap.subtotalAmount().toLong();   // snap already covers qty
+            netTotal   += snap.subtotalAmount().toLong();
             taxTotal   += snap.taxAmount().toLong();
-            grossTotal += grossSubtotal.toLong();
+            grossTotal += snap.totalAmount().toLong();
             billableItems.add(item);
         }
 

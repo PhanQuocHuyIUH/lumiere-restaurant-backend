@@ -31,7 +31,7 @@ public interface OrderEventRepository extends JpaRepository<OrderEvent, Long> {
                 COUNT(DISTINCT o.id)                                                                AS totalOrders,
                 COUNT(DISTINCT CASE WHEN o.confirmed_at IS NOT NULL THEN o.id END)                 AS confirmedOrders,
                 COUNT(DISTINCT CASE WHEN o.status = 'CANCELLED' THEN o.id END)                     AS cancelledOrders,
-                COALESCE(SUM(CASE WHEN p.status = 'SUCCESS' THEN p.amount END), 0)                 AS totalRevenue,
+                COALESCE(SUM(CASE WHEN p.status = 'SUCCESS' THEN p.amount_vnd END), 0)             AS totalRevenue,
                 COUNT(DISTINCT CASE WHEN p.status = 'SUCCESS' THEN p.id END)                       AS successfulPayments,
                 COUNT(DISTINCT CASE WHEN p.status = 'FAILED'  THEN p.id END)                       AS failedPayments
             FROM ordering.orders o
@@ -48,7 +48,7 @@ public interface OrderEventRepository extends JpaRepository<OrderEvent, Long> {
     @Query(value = """
             SELECT
                 DATE_TRUNC(:granularity, p.paid_at AT TIME ZONE 'UTC') AS period,
-                COALESCE(SUM(p.amount), 0)                              AS revenue,
+                COALESCE(SUM(p.amount_vnd), 0)                          AS revenue,
                 COUNT(p.id)                                             AS order_count
             FROM payment.payments p
             WHERE p.status = 'SUCCESS'
@@ -74,7 +74,7 @@ public interface OrderEventRepository extends JpaRepository<OrderEvent, Long> {
                 mi.name                         AS menu_item_name,
                 COALESCE(SUM(oi.quantity), 0)   AS total_quantity,
                 COUNT(DISTINCT o.id)            AS order_count,
-                COALESCE(SUM(oi.subtotal), 0)   AS total_revenue
+                COALESCE(SUM(oi.subtotal_vnd), 0) AS total_revenue
             FROM ordering.orders o
             JOIN ordering.order_revisions orv ON orv.order_id = o.id
             JOIN ordering.order_items     oi  ON oi.revision_id = orv.id

@@ -172,14 +172,10 @@ public class BillingServiceImpl implements BillingService {
             return new InvoiceItem(name, it.quantity(), it.unitPrice(), it.subtotal());
         }).toList();
 
-        BigDecimal subtotal = order.items().stream()
-            .map(r -> r.subtotal())
-            .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-        BigDecimal tax = BigDecimal.ZERO;
+        BigDecimal subtotal = order.subtotalAmount() != null ? order.subtotalAmount() : BigDecimal.ZERO;
+        BigDecimal tax = order.taxAmount() != null ? order.taxAmount() : BigDecimal.ZERO;
         BigDecimal discount = BigDecimal.ZERO;
-
-        BigDecimal total = order.totalAmount() != null ? order.totalAmount() : subtotal;
+        BigDecimal total = order.totalAmount() != null ? order.totalAmount() : subtotal.add(tax);
 
         String paymentMethod = paymentOpt.map(p -> p.getPaymentMethod() == null ? "" : p.getPaymentMethod().name()).orElse("");
         Instant paymentTime = paymentOpt.map(p -> p.getPaidAt()).orElse(order.paidAt());
