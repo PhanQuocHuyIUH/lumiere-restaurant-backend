@@ -22,8 +22,6 @@ import iuh.fit.se.ordering.domain.RevisionSource;
 import iuh.fit.se.shared.domain.Money;
 import iuh.fit.se.shared.domain.PricingSnapshot;
 import iuh.fit.se.shared.domain.TaxMode;
-import iuh.fit.se.shared.tax.application.TaxConfigService;
-import iuh.fit.se.shared.tax.application.TaxConfigService.TaxConfigDto;
 import iuh.fit.se.shared.util.PricingEngine;
 import iuh.fit.se.ordering.repository.OrderItemRepository;
 import iuh.fit.se.ordering.repository.OrderRepository;
@@ -97,7 +95,6 @@ public class OrderingServiceImpl implements OrderingService {
     private final ObjectMapper objectMapper;
     private final SimpMessagingTemplate messagingTemplate;
     private final PricingEngine pricingEngine;
-    private final TaxConfigService taxConfigService;
 
     public OrderingServiceImpl(
             OrderRepository orderRepository,
@@ -109,8 +106,7 @@ public class OrderingServiceImpl implements OrderingService {
             ApplicationEventPublisher eventPublisher,
             ObjectMapper objectMapper,
             SimpMessagingTemplate messagingTemplate,
-            PricingEngine pricingEngine,
-            TaxConfigService taxConfigService
+            PricingEngine pricingEngine
     ) {
         this.orderRepository = orderRepository;
         this.orderRevisionRepository = orderRevisionRepository;
@@ -122,7 +118,6 @@ public class OrderingServiceImpl implements OrderingService {
         this.objectMapper = objectMapper;
         this.messagingTemplate = messagingTemplate;
         this.pricingEngine = pricingEngine;
-        this.taxConfigService = taxConfigService;
     }
 
     @Override
@@ -836,24 +831,23 @@ public class OrderingServiceImpl implements OrderingService {
 
     private void refreshOrderTotal(Order order, Long revisionId) {
         List<OrderItem> items = orderItemRepository.findAllByRevisionIdOrderByIdAsc(revisionId);
-        TaxConfigDto globalConfig = taxConfigService.getActive();
 
         long netTotal = 0L;
         long taxTotal = 0L;
         long grossTotal = 0L;
         List<OrderItem> billableItems = new ArrayList<>();
+        Set<TaxMode> seenModes = new LinkedHashSet<>();
+        Set<Integer> seenRates = new LinkedHashSet<>();
 
         for (OrderItem item : items) {
             if (!item.isBillable()) continue;
 
-            TaxMode effectiveMode = item.getUnitTaxMode() != null
-                    ? item.getUnitTaxMode() : globalConfig.taxMode();
-            int effectiveRate = item.getUnitTaxRateBps() != null
-                    ? item.getUnitTaxRateBps() : globalConfig.taxRateBps();
+            // Item-level config is the sole source — always non-null after V12 + @NotNull fix.
+            TaxMode effectiveMode = item.getUnitTaxMode() != null ? item.getUnitTaxMode() : TaxMode.NO_TAX;
+            int effectiveRate     = item.getUnitTaxRateBps() != null ? item.getUnitTaxRateBps() : 0;
 
             // Snapshot on gross subtotal (unitPrice × qty) to avoid per-unit rounding drift
-            long grossUnitLong = item.getUnitPrice().toLong();
-            Money grossSubtotal = Money.ofVnd(grossUnitLong * item.getQuantity());
+            Money grossSubtotal = Money.ofVnd(item.getUnitPrice().toLong() * item.getQuantity());
             PricingSnapshot snap = pricingEngine.snapshot(grossSubtotal, effectiveMode, effectiveRate);
             item.applyTaxBreakdown(snap.subtotalAmount(), snap.taxAmount(), effectiveMode, effectiveRate);
 
@@ -861,31 +855,42 @@ public class OrderingServiceImpl implements OrderingService {
             taxTotal   += snap.taxAmount().toLong();
             grossTotal += snap.totalAmount().toLong();
             billableItems.add(item);
+            seenModes.add(effectiveMode);
+            seenRates.add(effectiveRate);
         }
 
         orderItemRepository.saveAll(billableItems);
+
+        TaxMode dominantMode = deriveDominantTaxMode(seenModes);
+        int dominantRate = seenRates.size() == 1 ? seenRates.iterator().next() : 0;
 
         order.applyPricingSnapshot(
                 Money.ofVnd(netTotal),
                 Money.ofVnd(taxTotal),
                 Money.ofVnd(grossTotal),
-                globalConfig.taxMode(),
-                globalConfig.taxRateBps(),
+                dominantMode,
+                dominantRate,
                 order.getTaxSnapshotById()
         );
         orderRepository.save(order);
     }
 
     private void applyPricingForConfirmation(Order order, Long staffId) {
-        TaxConfigDto config = taxConfigService.getActive();
+        // Amounts already computed by refreshOrderTotal(); just lock the snapshot with staffId.
         order.applyPricingSnapshot(
                 order.getSubtotalAmount(),
                 order.getTaxAmount(),
                 order.getTotalAmount(),
-                config.taxMode(),
-                config.taxRateBps(),
+                order.getTaxMode(),
+                order.getTaxRateBps(),
                 staffId
         );
+    }
+
+    private TaxMode deriveDominantTaxMode(Set<TaxMode> seenModes) {
+        if (seenModes.isEmpty()) return TaxMode.NO_TAX;
+        if (seenModes.size() == 1) return seenModes.iterator().next();
+        return TaxMode.MIXED;
     }
 
     private void ensureCanAddRevision(Order order) {

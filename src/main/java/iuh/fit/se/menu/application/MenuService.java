@@ -20,6 +20,7 @@ import iuh.fit.se.menu.api.dto.manager.UpsertPickComboRequest;
 import iuh.fit.se.menu.api.dto.manager.UpsertRecipeRequest;
 import iuh.fit.se.shared.ai.client.dto.ComboGenerateRequest;
 import iuh.fit.se.shared.ai.client.dto.ComboGenerateResponse;
+import iuh.fit.se.shared.domain.TaxMode;
 import java.util.List;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -44,6 +45,9 @@ public interface MenuService {
     List<MenuItemData> getMenuItemsBulk(List<Long> ids);
 
     List<MenuItemPricingData> getAllMenuItemsForTaxPreview();
+
+    /** Áp dụng taxMode + taxRateBps lên tất cả menu items đang active. Trả về số items đã cập nhật. */
+    int applyTaxToAllItems(TaxMode taxMode, int taxRateBps);
 
     MenuItemManagerDetailResponse updateMenuItemImage(Long id, MultipartFile file);
 

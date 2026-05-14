@@ -55,6 +55,7 @@ import iuh.fit.se.shared.storage.ImageStorageService;
 import iuh.fit.se.shared.storage.StoredImage;
 import java.math.BigDecimal;
 import iuh.fit.se.shared.domain.Money;
+import iuh.fit.se.shared.domain.TaxMode;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
@@ -472,6 +473,16 @@ public class MenuServiceImpl implements MenuService {
         item.softDelete();
         menuItemRepository.save(item);
         asyncDeleteFromVectorDb(id);
+    }
+
+    @Override
+    @Transactional
+    @CacheEvict(value = "menu", allEntries = true)
+    public int applyTaxToAllItems(TaxMode taxMode, int taxRateBps) {
+        List<MenuItem> items = menuItemRepository.findAllByDeletedAtIsNullOrderByIdAsc();
+        items.forEach(item -> item.updateTaxOverride(taxMode, taxRateBps));
+        menuItemRepository.saveAll(items);
+        return items.size();
     }
 
     @Override

@@ -7,10 +7,12 @@ import iuh.fit.se.shared.tax.api.dto.TaxConfigResponse;
 import iuh.fit.se.shared.tax.api.dto.TaxConfigUpdateRequest;
 import iuh.fit.se.shared.tax.application.TaxConfigService;
 import jakarta.validation.Valid;
+import java.util.Map;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -38,7 +40,8 @@ public class ManagerTaxController {
 
     /**
      * PUT /manager/tax/config
-     * Cập nhật cấu hình thuế toàn cục. Có hiệu lực ngay lập tức với mọi order chưa CONFIRMED.
+     * Cập nhật template thuế toàn cục (dùng làm mặc định khi tạo món mới).
+     * KHÔNG ảnh hưởng các menu items đã có — dùng POST /config/apply-to-all để áp dụng hàng loạt.
      */
     @PutMapping("/config")
     public ResponseEntity<ApiResponse<TaxConfigResponse>> updateConfig(
@@ -48,6 +51,26 @@ public class ManagerTaxController {
         Long staffId = extractStaffId(authentication);
         TaxConfigResponse updated = taxConfigService.update(request.taxMode(), request.taxRateBps(), staffId);
         return ResponseEntity.ok(ApiResponse.ok("Tax config updated", updated));
+    }
+
+    /**
+     * POST /manager/tax/config/apply-to-all
+     * Cập nhật template VÀ áp dụng ngay xuống tất cả menu items đang active.
+     * Trả về số items đã được cập nhật.
+     */
+    @PostMapping("/config/apply-to-all")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> applyToAll(
+            @Valid @RequestBody TaxConfigUpdateRequest request,
+            Authentication authentication
+    ) {
+        Long staffId = extractStaffId(authentication);
+        int updatedCount = taxConfigService.applyToAllMenuItems(request.taxMode(), request.taxRateBps(), staffId);
+        return ResponseEntity.ok(ApiResponse.ok(
+                "Tax config applied to all menu items",
+                Map.of("taxMode", request.taxMode(),
+                       "taxRateBps", request.taxRateBps(),
+                       "updatedItemCount", updatedCount)
+        ));
     }
 
     /**

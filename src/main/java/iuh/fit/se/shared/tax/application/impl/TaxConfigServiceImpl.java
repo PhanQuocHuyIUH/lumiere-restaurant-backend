@@ -74,16 +74,24 @@ public class TaxConfigServiceImpl implements TaxConfigService {
     }
 
     @Override
+    @CacheEvict(value = CACHE_NAME, key = "'" + CACHE_KEY + "'")
+    public int applyToAllMenuItems(TaxMode taxMode, int taxRateBps, Long staffId) {
+        upsertSetting(KEY_TAX_MODE, taxMode.name(), staffId);
+        upsertSetting(KEY_TAX_RATE, String.valueOf(taxRateBps), staffId);
+        return menuService.applyTaxToAllItems(taxMode, taxRateBps);
+    }
+
+    @Override
     @Transactional(readOnly = true)
     public MenuItemPricingPreviewResponse previewMenuItemPricing() {
         TaxConfigDto config = getActive();
-
         List<MenuItemPricingData> items = menuService.getAllMenuItemsForTaxPreview();
 
         List<MenuItemPricingPreviewResponse.ItemRow> rows = new ArrayList<>();
         for (MenuItemPricingData item : items) {
+            // Item-level config is always non-null after V12 + @NotNull fix.
             TaxMode effectiveMode = item.itemTaxMode() != null ? item.itemTaxMode() : config.taxMode();
-            int effectiveRate = item.itemTaxRateBps() != null ? item.itemTaxRateBps() : config.taxRateBps();
+            int effectiveRate     = item.itemTaxRateBps() != null ? item.itemTaxRateBps() : config.taxRateBps();
 
             PricingSnapshot snap = pricingEngine.snapshot(Money.of(item.price()), effectiveMode, effectiveRate);
 

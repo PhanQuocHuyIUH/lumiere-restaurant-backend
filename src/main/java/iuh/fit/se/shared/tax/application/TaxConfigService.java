@@ -13,6 +13,12 @@ public interface TaxConfigService {
 
     TaxConfigResponse update(TaxMode taxMode, int taxRateBps, Long staffId);
 
+    /**
+     * Cập nhật global template VÀ áp dụng ngay xuống tất cả menu items đang active.
+     * Trả về số items đã được cập nhật.
+     */
+    int applyToAllMenuItems(TaxMode taxMode, int taxRateBps, Long staffId);
+
     MenuItemPricingPreviewResponse previewMenuItemPricing();
 
     record TaxConfigDto(TaxMode taxMode, int taxRateBps) implements Serializable {}
