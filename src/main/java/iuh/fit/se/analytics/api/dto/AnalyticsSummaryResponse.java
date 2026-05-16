@@ -9,6 +9,8 @@ public record AnalyticsSummaryResponse(
         Long confirmedOrders,
         Long cancelledOrders,
         BigDecimal totalRevenue,
+        BigDecimal totalNetRevenue,
+        BigDecimal totalTax,
         Long successfulPayments,
         Long failedPayments,
         LocalDate fromDate,

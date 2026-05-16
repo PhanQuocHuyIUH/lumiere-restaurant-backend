@@ -2,6 +2,7 @@ package iuh.fit.se.kitchen.listener;
 
 import iuh.fit.se.kitchen.application.KitchenService;
 import iuh.fit.se.shared.event.OrderConfirmedEvent;
+import iuh.fit.se.shared.event.OrderItemCancelledEvent;
 import org.springframework.retry.annotation.Backoff;
 import org.springframework.retry.annotation.Retryable;
 import org.springframework.scheduling.annotation.Async;
@@ -23,5 +24,11 @@ public class KitchenOrderEventListener {
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     public void onOrderConfirmed(OrderConfirmedEvent event) {
         kitchenService.createTasksForOrder(event);
+    }
+
+    @Async
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
+    public void onOrderItemCancelled(OrderItemCancelledEvent event) {
+        kitchenService.cancelTasksForOrderItems(event.getCancelledOrderItemIds());
     }
 }

@@ -30,6 +30,8 @@ public interface TableService {
 
     void markTableCleaning(Long tableId);
 
+    void autoCompleteCleaningTables();
+
     TableData updateTableStatus(String tableCode, TableStatus newStatus);
 
     TableData createTable(int floor, int tableNo, int capacity);

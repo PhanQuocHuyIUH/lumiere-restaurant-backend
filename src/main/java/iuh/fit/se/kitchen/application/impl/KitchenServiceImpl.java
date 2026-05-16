@@ -17,12 +17,12 @@ import iuh.fit.se.kitchen.repository.KitchenTaskRepository;
 import iuh.fit.se.ordering.application.OrderingService;
 import iuh.fit.se.shared.event.OrderConfirmedEvent;
 import iuh.fit.se.shared.event.OrderItemSnapshot;
-import iuh.fit.se.shared.ai.AiClient;
-import iuh.fit.se.shared.ai.AiOperation;
-import iuh.fit.se.shared.ai.client.dto.KitchenBatchingRequest;
-import iuh.fit.se.shared.ai.client.dto.KitchenBatchingResponse;
-import iuh.fit.se.shared.ai.client.dto.KitchenBatchSuggestion;
-import iuh.fit.se.shared.ai.client.dto.KitchenTaskInput;
+import iuh.fit.se.ai.AiClient;
+import iuh.fit.se.ai.AiOperation;
+import iuh.fit.se.ai.client.dto.KitchenBatchingRequest;
+import iuh.fit.se.ai.client.dto.KitchenBatchingResponse;
+import iuh.fit.se.ai.client.dto.KitchenBatchSuggestion;
+import iuh.fit.se.ai.client.dto.KitchenTaskInput;
 import iuh.fit.se.shared.event.BatchDoneEvent;
 import iuh.fit.se.shared.event.KitchenTaskDoneEvent;
 import iuh.fit.se.shared.exception.DomainException;
@@ -556,6 +556,34 @@ public class KitchenServiceImpl implements KitchenService {
                 .limit(limit)
                 .map(task -> new KitchenTaskCookData(task.getActualCookSeconds()))
                 .toList();
+    }
+
+    @Override
+    public KitchenTaskResponse cancelTask(Long taskId) {
+        KitchenTask task = getTaskEntity(taskId);
+        task.cancel();
+        kitchenTaskRepository.save(task);
+
+        orderingService.cancelOrderItemByKitchen(task.getOrderId(), task.getOrderItemId());
+
+        KitchenTaskResponse response = KitchenTaskResponse.from(task);
+        messagingTemplate.convertAndSend("/topic/kitchen/tasks", response);
+        return response;
+    }
+
+    @Override
+    public void cancelTasksForOrderItems(List<Long> orderItemIds) {
+        if (orderItemIds == null || orderItemIds.isEmpty()) return;
+        List<KitchenTask> tasks = kitchenTaskRepository.findAllByOrderItemIdIn(orderItemIds);
+        List<KitchenTask> toCancel = tasks.stream()
+                .filter(t -> t.getStatus() == KitchenTaskStatus.CREATED
+                        || t.getStatus() == KitchenTaskStatus.COOKING)
+                .toList();
+        if (toCancel.isEmpty()) return;
+        toCancel.forEach(KitchenTask::cancel);
+        kitchenTaskRepository.saveAll(toCancel);
+        messagingTemplate.convertAndSend("/topic/kitchen/tasks/cancelled",
+                toCancel.stream().map(KitchenTask::getId).toList());
     }
 
 }

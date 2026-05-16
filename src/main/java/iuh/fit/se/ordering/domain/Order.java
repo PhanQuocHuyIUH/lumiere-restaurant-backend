@@ -95,10 +95,6 @@ public class Order {
     @Column(name = "note")
     private String note;
 
-    @Column(name = "split_bill_allowed", nullable = false)
-    @Builder.Default
-    private boolean splitBillAllowed = false;
-
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 

@@ -1,6 +1,8 @@
 package iuh.fit.se.table.repository;
 
 import iuh.fit.se.table.domain.RestaurantTable;
+import iuh.fit.se.table.domain.TableStatus;
+import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -15,4 +17,6 @@ public interface RestaurantTableRepository extends JpaRepository<RestaurantTable
     Optional<RestaurantTable> findByIdAndDeletedAtIsNull(Long id);
 
     Optional<RestaurantTable> findByTableCodeAndDeletedAtIsNull(String tableCode);
+
+    List<RestaurantTable> findAllByStatusAndDeletedAtIsNullAndUpdatedAtBefore(TableStatus status, Instant before);
 }

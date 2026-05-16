@@ -26,15 +26,10 @@ import iuh.fit.se.shared.util.PricingEngine;
 import iuh.fit.se.ordering.repository.OrderItemRepository;
 import iuh.fit.se.ordering.repository.OrderRepository;
 import iuh.fit.se.ordering.repository.OrderRevisionRepository;
-import iuh.fit.se.shared.ai.AiClient;
-import iuh.fit.se.shared.ai.AiOperation;
-import iuh.fit.se.shared.ai.client.dto.ChatbotRequest;
-import iuh.fit.se.shared.ai.client.dto.ChatbotResponse;
-import iuh.fit.se.shared.ai.client.dto.RecommendRequest;
-import iuh.fit.se.shared.ai.client.dto.RecommendResponse;
 import iuh.fit.se.shared.event.OrderCancelledEvent;
 import iuh.fit.se.shared.event.OrderConfirmedEvent;
 import iuh.fit.se.shared.event.OrderCreatedEvent;
+import iuh.fit.se.shared.event.OrderItemCancelledEvent;
 import iuh.fit.se.shared.event.OrderItemSnapshot;
 import iuh.fit.se.shared.exception.DomainException;
 import iuh.fit.se.shared.exception.ResourceNotFoundException;
@@ -90,7 +85,6 @@ public class OrderingServiceImpl implements OrderingService {
     private final OrderItemRepository orderItemRepository;
     private final MenuService menuService;
     private final TableService tableService;
-    private final AiClient aiClient;
     private final ApplicationEventPublisher eventPublisher;
     private final ObjectMapper objectMapper;
     private final SimpMessagingTemplate messagingTemplate;
@@ -102,7 +96,6 @@ public class OrderingServiceImpl implements OrderingService {
             OrderItemRepository orderItemRepository,
             MenuService menuService,
             TableService tableService,
-            AiClient aiClient,
             ApplicationEventPublisher eventPublisher,
             ObjectMapper objectMapper,
             SimpMessagingTemplate messagingTemplate,
@@ -113,7 +106,6 @@ public class OrderingServiceImpl implements OrderingService {
         this.orderItemRepository = orderItemRepository;
         this.menuService = menuService;
         this.tableService = tableService;
-        this.aiClient = aiClient;
         this.eventPublisher = eventPublisher;
         this.objectMapper = objectMapper;
         this.messagingTemplate = messagingTemplate;
@@ -138,7 +130,6 @@ public class OrderingServiceImpl implements OrderingService {
             Order order = Order.builder()
                     .tableId(table.id())
                     .note(normalizeOptionalText(request.note()))
-                    .splitBillAllowed(Boolean.TRUE.equals(request.splitBillAllowed()))
                     .build();
             order = orderRepository.save(order);
 
@@ -153,11 +144,11 @@ public class OrderingServiceImpl implements OrderingService {
 
             List<OrderItem> savedItems = persistCreateOrderItems(revision.getId(), request.items(), menuItems);
 
-            refreshOrderTotal(order, revision.getId());
+            refreshOrderTotal(order);
             tableService.markTableOccupied(table.id());
 
             eventPublisher.publishEvent(new OrderCreatedEvent(order.getId(), order.getTableId()));
-            OrderResponse response = OrderResponse.from(order, revision.getRevisionNumber(), savedItems);
+            OrderResponse response = buildOrderResponse(order, revision.getRevisionNumber(), savedItems);
 
             if (actor.source() == RevisionSource.CUSTOMER_QR) {
                 messagingTemplate.convertAndSend("/topic/waiter/new-order", response);
@@ -165,12 +156,6 @@ public class OrderingServiceImpl implements OrderingService {
             }
 
             return response;
-    }
-
-    @Override
-    public OrderResponse createOrder(CreateOrderRequest request, String qrSessionId, String idempotencyToken) {
-        // idempotency token no longer used in ordering module; keep compatibility
-        return createOrder(request, qrSessionId);
     }
 
     @Override
@@ -193,7 +178,7 @@ public class OrderingServiceImpl implements OrderingService {
                 );
             revision = orderRevisionRepository.save(revision);
 
-            List<OrderItem> savedItems = persistRevisionItems(revision.getId(), request.items(), menuItems);
+            persistRevisionItems(revision.getId(), request.items(), menuItems);
 
             if (request.note() != null && !request.note().isBlank()) {
                 order.updateNote(request.note().trim());
@@ -202,11 +187,12 @@ public class OrderingServiceImpl implements OrderingService {
             if (order.getStatus() == OrderStatus.SERVED) {
                 order.reopenForAdditionalItems();
                 orderRepository.save(order);
-                eventPublisher.publishEvent(buildOrderConfirmedEvent(order, savedItems));
+                // Waiter must explicitly confirm — do NOT auto-send to kitchen
             }
 
-            refreshOrderTotal(order, revision.getId());
-            return OrderResponse.from(order, revision.getRevisionNumber(), savedItems);
+            refreshOrderTotal(order);
+            List<OrderItem> allItems = loadAllOrderItems(order.getId());
+            return buildOrderResponse(order, revision.getRevisionNumber(), allItems);
     }
 
     @Override
@@ -224,11 +210,12 @@ public class OrderingServiceImpl implements OrderingService {
             }
 
             OrderRevision latestRevision = getLatestRevision(orderId);
-            List<OrderItem> latestItems = orderItemRepository.findAllByRevisionIdOrderByIdAsc(latestRevision.getId());
+            // Send ALL items from ALL revisions — kitchen service deduplicates by orderItemId
+            List<OrderItem> allItems = loadAllOrderItems(orderId);
 
-            eventPublisher.publishEvent(buildOrderConfirmedEvent(order, latestItems));
+            eventPublisher.publishEvent(buildOrderConfirmedEvent(order, allItems));
 
-            return OrderResponse.from(order, latestRevision.getRevisionNumber(), latestItems);
+            return buildOrderResponse(order, latestRevision.getRevisionNumber(), allItems);
     }
 
     @Override
@@ -238,6 +225,113 @@ public class OrderingServiceImpl implements OrderingService {
         orderRepository.save(order);
 
         eventPublisher.publishEvent(new OrderCancelledEvent(order.getId(), normalizeCancelReason(reason)));
+        return toOrderResponse(order);
+    }
+
+    @Override
+    public OrderResponse cancelOrderItem(Long orderId, Long itemId) {
+        Order order = getOrderEntity(orderId);
+        if (!REVISION_ALLOWED_STATUSES.contains(order.getStatus())) {
+            throw new DomainException("Cannot cancel item for order in status: " + order.getStatus());
+        }
+
+        OrderItem orderItem = getOrderItemEntity(itemId);
+        ensureOrderItemBelongsToOrder(orderId, orderItem);
+
+        if (orderItem.getStatus() == OrderItemStatus.CANCELLED) {
+            return toOrderResponse(order);
+        }
+
+        // Staff can only cancel items the kitchen has not yet started (PENDING)
+        if (orderItem.getStatus() != OrderItemStatus.PENDING) {
+            throw new DomainException("Staff can only cancel items that have not yet started cooking (PENDING)");
+        }
+
+        List<OrderItem> toCancel = new ArrayList<>();
+        toCancel.add(orderItem);
+
+        if (orderItem.isComboParent()) {
+            List<OrderItem> children = loadAllOrderItems(orderId).stream()
+                    .filter(i -> orderItem.getId().equals(i.getParentOrderItemId()))
+                    .filter(i -> i.getStatus() != OrderItemStatus.CANCELLED)
+                    .toList();
+            boolean allPending = children.stream().allMatch(c -> c.getStatus() == OrderItemStatus.PENDING);
+            if (!allPending) {
+                throw new DomainException("Cannot cancel combo: kitchen has already started on one or more items");
+            }
+            toCancel.addAll(children);
+        }
+
+        toCancel.forEach(OrderItem::cancel);
+        orderItemRepository.saveAll(toCancel);
+
+        List<Long> nonParentIds = toCancel.stream()
+                .filter(i -> !i.isComboParent())
+                .map(OrderItem::getId)
+                .toList();
+        if (!nonParentIds.isEmpty()) {
+            eventPublisher.publishEvent(new OrderItemCancelledEvent(orderId, nonParentIds));
+        }
+
+        refreshOrderTotal(order);
+        return toOrderResponse(order);
+    }
+
+    @Override
+    public OrderResponse cancelOrderItemByKitchen(Long orderId, Long itemId) {
+        Order order = getOrderEntity(orderId);
+        if (!REVISION_ALLOWED_STATUSES.contains(order.getStatus())) {
+            throw new DomainException("Cannot cancel item for order in status: " + order.getStatus());
+        }
+
+        OrderItem orderItem = getOrderItemEntity(itemId);
+        ensureOrderItemBelongsToOrder(orderId, orderItem);
+
+        if (orderItem.getStatus() == OrderItemStatus.CANCELLED) {
+            return toOrderResponse(order);
+        }
+
+        if (orderItem.getStatus() != OrderItemStatus.PENDING && orderItem.getStatus() != OrderItemStatus.PREPARING) {
+            throw new DomainException("Kitchen can only cancel items that are PENDING or PREPARING");
+        }
+
+        List<OrderItem> allItems = loadAllOrderItems(orderId);
+        List<OrderItem> toCancel = new ArrayList<>();
+
+        if (orderItem.getParentOrderItemId() != null) {
+            // Combo child: cancel the entire combo (parent + all siblings including this item)
+            Long parentId = orderItem.getParentOrderItemId();
+            allItems.stream()
+                    .filter(i -> i.getId().equals(parentId))
+                    .filter(i -> i.getStatus() != OrderItemStatus.CANCELLED)
+                    .forEach(toCancel::add);
+            allItems.stream()
+                    .filter(i -> parentId.equals(i.getParentOrderItemId()))
+                    .filter(i -> i.getStatus() != OrderItemStatus.CANCELLED)
+                    .forEach(toCancel::add);
+        } else if (orderItem.isComboParent()) {
+            // Combo parent: cancel parent + all children
+            toCancel.add(orderItem);
+            allItems.stream()
+                    .filter(i -> orderItem.getId().equals(i.getParentOrderItemId()))
+                    .filter(i -> i.getStatus() != OrderItemStatus.CANCELLED)
+                    .forEach(toCancel::add);
+        } else {
+            toCancel.add(orderItem);
+        }
+
+        toCancel.forEach(OrderItem::cancel);
+        orderItemRepository.saveAll(toCancel);
+
+        List<Long> nonParentIds = toCancel.stream()
+                .filter(i -> !i.isComboParent())
+                .map(OrderItem::getId)
+                .toList();
+        if (!nonParentIds.isEmpty()) {
+            eventPublisher.publishEvent(new OrderItemCancelledEvent(orderId, nonParentIds));
+        }
+
+        refreshOrderTotal(order);
         return toOrderResponse(order);
     }
 
@@ -292,20 +386,6 @@ public class OrderingServiceImpl implements OrderingService {
     }
 
     @Override
-    public RecommendResponse recommend(RecommendRequest request) {
-        RecommendRequest safeRequest = normalizeRecommendRequest(request);
-        return aiClient.post("/ai/recommend", safeRequest, RecommendResponse.class, AiOperation.RECOMMEND)
-                .orElseGet(() -> new RecommendResponse(false, "backend-fallback", List.of(), null));
-    }
-
-    @Override
-    public ChatbotResponse chatbot(ChatbotRequest request) {
-        ChatbotRequest safeRequest = normalizeChatbotRequest(request);
-        return aiClient.post("/ai/chatbot", safeRequest, ChatbotResponse.class, AiOperation.CHATBOT)
-                .orElseGet(() -> new ChatbotResponse(false, "AI service is temporarily unavailable", List.of()));
-    }
-
-    @Override
     public Long markOrderItemPreparing(Long orderItemId) {
         OrderItem orderItem = getOrderItemEntity(orderItemId);
         orderItem.startPreparing();
@@ -336,16 +416,16 @@ public class OrderingServiceImpl implements OrderingService {
     public Optional<OrderResponse> markOrderReadyIfAllItemsDone(Long orderId) {
         Order order = getOrderEntity(orderId);
         OrderRevision latestRevision = getLatestRevision(orderId);
-        List<OrderItem> latestItems = orderItemRepository.findAllByRevisionIdOrderByIdAsc(latestRevision.getId());
+        List<OrderItem> allItems = loadAllOrderItems(orderId);
 
-        if (latestItems.isEmpty() || !areAllItemsDoneForReady(latestItems)) {
+        if (allItems.isEmpty() || !areAllItemsDoneForReady(allItems)) {
             return Optional.empty();
         }
 
         if (order.getStatus() == OrderStatus.PREPARING) {
             order.markReady();
             orderRepository.save(order);
-            return Optional.of(OrderResponse.from(order, latestRevision.getRevisionNumber(), latestItems));
+            return Optional.of(buildOrderResponse(order, latestRevision.getRevisionNumber(), allItems));
         }
 
         return Optional.empty();
@@ -360,7 +440,7 @@ public class OrderingServiceImpl implements OrderingService {
 
         OrderRevision latestRevision = getLatestRevision(orderId);
         OrderItem orderItem = getOrderItemEntity(orderItemId);
-        ensureOrderItemInLatestRevision(orderId, latestRevision, orderItem);
+        ensureOrderItemBelongsToOrder(orderId, orderItem);
 
         if (orderItem.getStatus() == OrderItemStatus.DONE) {
             orderItem.markServed();
@@ -369,16 +449,16 @@ public class OrderingServiceImpl implements OrderingService {
             throw new DomainException("Cannot serve item in status: " + orderItem.getStatus());
         }
 
-        List<OrderItem> latestItems = orderItemRepository.findAllByRevisionIdOrderByIdAsc(latestRevision.getId());
+        List<OrderItem> allItems = loadAllOrderItems(orderId);
 
-        List<OrderItem> syncedParents = syncComboParents(latestItems);
+        List<OrderItem> syncedParents = syncComboParents(allItems);
         if (!syncedParents.isEmpty()) {
             orderItemRepository.saveAll(syncedParents);
         }
 
-        promoteOrderAfterServingIfEligible(order, staffId, latestItems);
+        promoteOrderAfterServingIfEligible(order, staffId, allItems);
 
-        return OrderResponse.from(order, latestRevision.getRevisionNumber(), latestItems);
+        return buildOrderResponse(order, latestRevision.getRevisionNumber(), allItems);
     }
 
     @Override
@@ -389,11 +469,12 @@ public class OrderingServiceImpl implements OrderingService {
         ensureOrderCanBeServed(order);
 
         OrderRevision latestRevision = getLatestRevision(orderId);
-        List<OrderItem> latestItems = orderItemRepository.findAllByRevisionIdOrderByIdAsc(latestRevision.getId());
+        List<OrderItem> allItems = loadAllOrderItems(orderId);
 
         List<OrderItem> changedItems = new ArrayList<>();
-        for (OrderItem item : latestItems) {
+        for (OrderItem item : allItems) {
             if (item.isComboParent()) continue;
+            if (item.getStatus() == OrderItemStatus.CANCELLED) continue;
             if (item.getStatus() == OrderItemStatus.DONE) {
                 item.markServed();
                 changedItems.add(item);
@@ -404,15 +485,15 @@ public class OrderingServiceImpl implements OrderingService {
             }
         }
 
-        List<OrderItem> syncedParents = syncComboParents(latestItems);
+        List<OrderItem> syncedParents = syncComboParents(allItems);
         changedItems.addAll(syncedParents);
 
         if (!changedItems.isEmpty()) {
             orderItemRepository.saveAll(changedItems);
         }
 
-        promoteOrderAfterServingIfEligible(order, staffId, latestItems);
-        return OrderResponse.from(order, latestRevision.getRevisionNumber(), latestItems);
+        promoteOrderAfterServingIfEligible(order, staffId, allItems);
+        return buildOrderResponse(order, latestRevision.getRevisionNumber(), allItems);
     }
 
     private Order getOrderEntity(Long orderId) {
@@ -450,21 +531,25 @@ public class OrderingServiceImpl implements OrderingService {
         }
     }
 
-    private void ensureOrderItemInLatestRevision(Long orderId, OrderRevision latestRevision, OrderItem orderItem) {
-        if (!latestRevision.getId().equals(orderItem.getRevisionId())) {
-            throw new DomainException("Order item " + orderItem.getId() + " does not belong to latest revision of order " + orderId);
+    private void ensureOrderItemBelongsToOrder(Long orderId, OrderItem orderItem) {
+        OrderRevision revision = orderRevisionRepository.findById(orderItem.getRevisionId())
+                .orElseThrow(() -> new ResourceNotFoundException("OrderRevision", orderItem.getRevisionId()));
+        if (!revision.getOrderId().equals(orderId)) {
+            throw new DomainException("Order item " + orderItem.getId() + " does not belong to order " + orderId);
         }
     }
 
     private boolean areAllItemsDoneForReady(List<OrderItem> items) {
         return items.stream()
                 .filter(item -> !item.isComboParent())
+                .filter(item -> item.getStatus() != OrderItemStatus.CANCELLED)
                 .allMatch(item -> item.getStatus() == OrderItemStatus.DONE || item.getStatus() == OrderItemStatus.SERVED);
     }
 
     private boolean areAllItemsServed(List<OrderItem> items) {
         return items.stream()
                 .filter(item -> !item.isComboParent())
+                .filter(item -> item.getStatus() != OrderItemStatus.CANCELLED)
                 .allMatch(item -> item.getStatus() == OrderItemStatus.SERVED);
     }
 
@@ -477,8 +562,11 @@ public class OrderingServiceImpl implements OrderingService {
         for (OrderItem item : allItems) {
             if (!item.isComboParent()) continue;
             List<OrderItem> children = childrenByParentId.getOrDefault(item.getId(), List.of());
-            if (!children.isEmpty()
-                    && children.stream().allMatch(c -> c.getStatus() == OrderItemStatus.SERVED)
+            List<OrderItem> activeChildren = children.stream()
+                    .filter(c -> c.getStatus() != OrderItemStatus.CANCELLED)
+                    .toList();
+            if (!activeChildren.isEmpty()
+                    && activeChildren.stream().allMatch(c -> c.getStatus() == OrderItemStatus.SERVED)
                     && item.getStatus() != OrderItemStatus.SERVED) {
                 item.markServed();
                 synced.add(item);
@@ -531,7 +619,7 @@ public class OrderingServiceImpl implements OrderingService {
         );
         revision = orderRevisionRepository.save(revision);
 
-        List<OrderItem> savedItems = persistCreateOrderItems(revision.getId(), request.items(), menuItems);
+        persistCreateOrderItems(revision.getId(), request.items(), menuItems);
 
         if (request.note() != null && !request.note().isBlank()) {
             order.updateNote(request.note().trim());
@@ -540,11 +628,12 @@ public class OrderingServiceImpl implements OrderingService {
         if (order.getStatus() == OrderStatus.SERVED) {
             order.reopenForAdditionalItems();
             orderRepository.save(order);
-            eventPublisher.publishEvent(buildOrderConfirmedEvent(order, savedItems));
+            // Waiter must explicitly confirm — do NOT auto-send to kitchen
         }
 
-        refreshOrderTotal(order, revision.getId());
-        OrderResponse response = OrderResponse.from(order, revision.getRevisionNumber(), savedItems);
+        refreshOrderTotal(order);
+        List<OrderItem> allItems = loadAllOrderItems(order.getId());
+        OrderResponse response = buildOrderResponse(order, revision.getRevisionNumber(), allItems);
 
         if (actor.source() == RevisionSource.CUSTOMER_QR) {
             messagingTemplate.convertAndSend("/topic/waiter/new-order", response);
@@ -829,8 +918,8 @@ public class OrderingServiceImpl implements OrderingService {
         return result;
     }
 
-    private void refreshOrderTotal(Order order, Long revisionId) {
-        List<OrderItem> items = orderItemRepository.findAllByRevisionIdOrderByIdAsc(revisionId);
+    private void refreshOrderTotal(Order order) {
+        List<OrderItem> items = loadAllOrderItems(order.getId());
 
         long netTotal = 0L;
         long taxTotal = 0L;
@@ -841,6 +930,7 @@ public class OrderingServiceImpl implements OrderingService {
 
         for (OrderItem item : items) {
             if (!item.isBillable()) continue;
+            if (item.getStatus() == OrderItemStatus.CANCELLED) continue;
 
             // Item-level config is the sole source — always non-null after V12 + @NotNull fix.
             TaxMode effectiveMode = item.getUnitTaxMode() != null ? item.getUnitTaxMode() : TaxMode.NO_TAX;
@@ -986,60 +1076,47 @@ public class OrderingServiceImpl implements OrderingService {
         return value != null && !value.isBlank();
     }
 
+    private List<OrderItem> loadAllOrderItems(Long orderId) {
+        List<Long> revisionIds = orderRevisionRepository.findAllByOrderId(orderId)
+                .stream().map(OrderRevision::getId).toList();
+        if (revisionIds.isEmpty()) return List.of();
+        return orderItemRepository.findAllByRevisionIdInOrderByIdAsc(revisionIds);
+    }
+
     private OrderResponse toOrderResponse(Order order) {
         Optional<OrderRevision> latestRevisionOpt = orderRevisionRepository.findTopByOrderIdOrderByRevisionNumberDesc(order.getId());
         if (latestRevisionOpt.isEmpty()) {
-            return OrderResponse.from(order, null, List.of());
+            return buildOrderResponse(order, null, List.of());
         }
 
         OrderRevision latestRevision = latestRevisionOpt.get();
-        List<OrderItem> items = orderItemRepository.findAllByRevisionIdOrderByIdAsc(latestRevision.getId());
-        return OrderResponse.from(order, latestRevision.getRevisionNumber(), items);
+        List<OrderItem> allItems = loadAllOrderItems(order.getId());
+        return buildOrderResponse(order, latestRevision.getRevisionNumber(), allItems);
     }
 
-    private RecommendRequest normalizeRecommendRequest(RecommendRequest request) {
-        if (request == null) {
-            throw new DomainException("Recommend request is required");
-        }
-
-        List<Long> currentItems = request.currentItems() == null
-                ? List.of()
-                : request.currentItems().stream()
-                        .filter(id -> id != null && id > 0)
-                        .distinct()
-                        .toList();
-
-        if (currentItems.isEmpty()) {
-            throw new DomainException("currentItems must not be empty");
-        }
-
-        int topK = request.topK() <= 0 ? 3 : request.topK();
-        return new RecommendRequest(currentItems, topK);
+    private OrderResponse buildOrderResponse(Order order, Integer revisionNumber, List<OrderItem> items) {
+        Map<Long, String> menuItemNames = loadMenuItemNames(items);
+        return OrderResponse.from(order, revisionNumber, items, menuItemNames);
     }
 
-    private ChatbotRequest normalizeChatbotRequest(ChatbotRequest request) {
-        if (request == null) {
-            throw new DomainException("Chatbot request is required");
+    private Map<Long, String> loadMenuItemNames(List<OrderItem> items) {
+        List<Long> ids = items.stream()
+                .map(OrderItem::getMenuItemId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        if (ids.isEmpty()) return Map.of();
+        Map<Long, String> result = new HashMap<>();
+        try {
+            menuService.getMenuItemsBulk(ids).forEach(m -> {
+                if (m != null && m.id() != null) {
+                    result.put(m.id(), m.name() == null ? "" : m.name());
+                }
+            });
+        } catch (Exception ignored) {
+            // Fallback: empty map; FE will render "Món #ID".
         }
-
-        String sessionId = normalizeOptionalText(request.sessionId());
-        if (sessionId == null) {
-            throw new DomainException("sessionId is required");
-        }
-
-        String message = normalizeOptionalText(request.message());
-        if (message == null) {
-            throw new DomainException("message is required");
-        }
-
-        List<Long> currentCartItemIds = request.currentCartItemIds() == null
-                ? List.of()
-                : request.currentCartItemIds().stream()
-                        .filter(id -> id != null && id > 0)
-                        .distinct()
-                        .toList();
-
-        return new ChatbotRequest(sessionId, message, currentCartItemIds);
+        return result;
     }
 
     private String normalizeOptionalText(String value) {

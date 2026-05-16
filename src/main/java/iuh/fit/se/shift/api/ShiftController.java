@@ -4,6 +4,7 @@ import iuh.fit.se.shift.api.dto.CloseShiftRequest;
 import iuh.fit.se.shift.api.dto.CloseShiftResponse;
 import iuh.fit.se.shift.api.dto.OpenShiftRequest;
 import iuh.fit.se.shift.api.dto.ShiftResponse;
+import iuh.fit.se.shift.api.dto.ShiftSummaryResponse;
 import iuh.fit.se.shift.application.ShiftService;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -31,6 +32,12 @@ public class ShiftController {
     @PostMapping("/{id}/close")
     public ResponseEntity<CloseShiftResponse> close(@PathVariable Long id, @Valid @RequestBody CloseShiftRequest request) {
         return ResponseEntity.ok(shiftService.closeShift(id, request));
+    }
+
+    @PreAuthorize("hasAnyRole('CASHIER', 'MANAGER')")
+    @GetMapping("/{id}/summary")
+    public ResponseEntity<ShiftSummaryResponse> summary(@PathVariable Long id) {
+        return ResponseEntity.ok(shiftService.previewShift(id));
     }
 
     @PreAuthorize("hasAnyRole('CASHIER', 'MANAGER')")

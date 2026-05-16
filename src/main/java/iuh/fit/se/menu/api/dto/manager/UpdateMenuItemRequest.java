@@ -7,6 +7,7 @@ import jakarta.validation.constraints.Max;
 import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.PositiveOrZero;
 import java.math.BigDecimal;
 
@@ -20,7 +21,7 @@ public record UpdateMenuItemRequest(
         String description,
 
         @NotNull(message = "price is required")
-        @PositiveOrZero(message = "price must be >= 0")
+        @Positive(message = "price must be > 0")
         BigDecimal price,
 
         @PositiveOrZero(message = "cookTime must be >= 0")

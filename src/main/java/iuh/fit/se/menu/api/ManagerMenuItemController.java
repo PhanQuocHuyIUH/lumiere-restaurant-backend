@@ -10,7 +10,7 @@ import iuh.fit.se.menu.api.dto.manager.UpsertFixedComboRequest;
 import iuh.fit.se.menu.api.dto.manager.UpsertPickComboRequest;
 import iuh.fit.se.menu.api.dto.manager.UpsertRecipeRequest;
 import iuh.fit.se.menu.application.MenuService;
-import iuh.fit.se.shared.ai.client.dto.ComboGenerateResponse;
+import iuh.fit.se.ai.client.dto.ComboGenerateResponse;
 import iuh.fit.se.shared.response.ApiResponse;
 import jakarta.validation.Valid;
 import java.util.List;

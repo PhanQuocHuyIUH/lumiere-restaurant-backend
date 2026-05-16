@@ -32,6 +32,8 @@ public interface OrderEventRepository extends JpaRepository<OrderEvent, Long> {
                 COUNT(DISTINCT CASE WHEN o.confirmed_at IS NOT NULL THEN o.id END)                 AS confirmedOrders,
                 COUNT(DISTINCT CASE WHEN o.status = 'CANCELLED' THEN o.id END)                     AS cancelledOrders,
                 COALESCE(SUM(CASE WHEN p.status = 'SUCCESS' THEN p.amount_vnd END), 0)             AS totalRevenue,
+                COALESCE(SUM(CASE WHEN p.status = 'SUCCESS' THEN o.subtotal_amount_vnd END), 0)    AS totalNetRevenue,
+                COALESCE(SUM(CASE WHEN p.status = 'SUCCESS' THEN o.tax_amount_vnd END), 0)         AS totalTax,
                 COUNT(DISTINCT CASE WHEN p.status = 'SUCCESS' THEN p.id END)                       AS successfulPayments,
                 COUNT(DISTINCT CASE WHEN p.status = 'FAILED'  THEN p.id END)                       AS failedPayments
             FROM ordering.orders o
@@ -49,8 +51,11 @@ public interface OrderEventRepository extends JpaRepository<OrderEvent, Long> {
             SELECT
                 DATE_TRUNC(:granularity, p.paid_at AT TIME ZONE 'UTC') AS period,
                 COALESCE(SUM(p.amount_vnd), 0)                          AS revenue,
+                COALESCE(SUM(o.subtotal_amount_vnd), 0)                 AS net_revenue,
+                COALESCE(SUM(o.tax_amount_vnd), 0)                      AS tax_amount,
                 COUNT(p.id)                                             AS order_count
             FROM payment.payments p
+            JOIN ordering.orders o ON o.id = p.order_id
             WHERE p.status = 'SUCCESS'
               AND (CAST(:fromTime AS timestamptz) IS NULL OR p.paid_at >= CAST(:fromTime AS timestamptz))
               AND (CAST(:toTime AS timestamptz) IS NULL OR p.paid_at < CAST(:toTime AS timestamptz))
@@ -124,6 +129,10 @@ public interface OrderEventRepository extends JpaRepository<OrderEvent, Long> {
 
         BigDecimal getTotalRevenue();
 
+        BigDecimal getTotalNetRevenue();
+
+        BigDecimal getTotalTax();
+
         Long getSuccessfulPayments();
 
         Long getFailedPayments();
@@ -133,6 +142,10 @@ public interface OrderEventRepository extends JpaRepository<OrderEvent, Long> {
         Instant getPeriod();
 
         BigDecimal getRevenue();
+
+        BigDecimal getNetRevenue();
+
+        BigDecimal getTaxAmount();
 
         Long getOrderCount();
     }

@@ -27,6 +27,8 @@ public interface OrderRevisionRepository extends JpaRepository<OrderRevision, Lo
 
     Optional<OrderRevision> findTopByOrderIdOrderByRevisionNumberDesc(Long orderId);
 
+    List<OrderRevision> findAllByOrderId(Long orderId);
+
     interface LatestOrderRevisionProjection {
         Long getOrderId();
 

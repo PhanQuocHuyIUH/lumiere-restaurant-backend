@@ -15,14 +15,17 @@ COPY --from=build /app/target/*.jar app.jar
 
 EXPOSE 8080
 
-# ENTRYPOINT ["java", "-Xmx450m", "-jar", "app.jar"]
-
-# Cấu hình JVM ép xung chuyên biệt cho môi trường 512MB RAM
+# Tuned for Render free tier (512MB):
+# Heap 210m + Metaspace 150m + CodeCache 56m + JVM overhead ~50m ≈ 466m → ~46m buffer
 ENTRYPOINT ["java", \
-            "-Xmx300m", \
-            "-Xms300m", \
-            "-XX:MaxMetaspaceSize=128m", \
+            "-Xmx210m", \
+            "-Xms128m", \
+            "-XX:MaxMetaspaceSize=150m", \
+            "-XX:CompressedClassSpaceSize=48m", \
+            "-XX:ReservedCodeCacheSize=56m", \
             "-Xss256k", \
             "-XX:+UseSerialGC", \
+            "-XX:+TieredCompilation", \
+            "-XX:TieredStopAtLevel=1", \
             "-Djava.security.egd=file:/dev/./urandom", \
             "-jar", "app.jar"]

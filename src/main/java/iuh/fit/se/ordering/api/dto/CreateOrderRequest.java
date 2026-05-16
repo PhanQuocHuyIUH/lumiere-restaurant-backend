@@ -13,8 +13,6 @@ public record CreateOrderRequest(
 
         String note,
 
-        Boolean splitBillAllowed,
-
         @NotEmpty(message = "items must not be empty")
         @Valid
         List<OrderItemRequest> items

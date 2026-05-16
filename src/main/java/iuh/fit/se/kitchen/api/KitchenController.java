@@ -53,6 +53,14 @@ public class KitchenController {
         return ResponseEntity.ok(ApiResponse.ok("Kitchen task completed", response));
     }
 
+    @PutMapping("/tasks/{id}/cancel")
+    public ResponseEntity<ApiResponse<KitchenTaskResponse>> cancelTask(
+            @PathVariable("id") Long taskId
+    ) {
+        KitchenTaskResponse response = kitchenService.cancelTask(taskId);
+        return ResponseEntity.ok(ApiResponse.ok("Kitchen task cancelled", response));
+    }
+
     @GetMapping("/batches")
     public ResponseEntity<ApiResponse<List<KitchenBatchResponse>>> getBatches(
             @RequestParam(value = "status", required = false) KitchenBatchStatus status

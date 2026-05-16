@@ -83,6 +83,9 @@ public class TableServiceImpl implements TableService {
     @Value("${app.qr.session-expiration:1800000}")
     private long qrSessionExpirationMs;
 
+    @Value("${app.table.cleaning-timeout-minutes:30}")
+    private long cleaningTimeoutMinutes;
+
     public TableServiceImpl(
             RestaurantTableRepository restaurantTableRepository,
             TableQrCodeRepository tableQrCodeRepository,
@@ -279,6 +282,26 @@ public class TableServiceImpl implements TableService {
 
         table.markCleaning();
         restaurantTableRepository.save(table);
+    }
+
+    @Override
+    @Transactional
+    @CacheEvict(value = "tables", allEntries = true)
+    public void autoCompleteCleaningTables() {
+        Instant cutoff = Instant.now().minus(Duration.ofMinutes(cleaningTimeoutMinutes));
+        List<RestaurantTable> tables = restaurantTableRepository
+                .findAllByStatusAndDeletedAtIsNullAndUpdatedAtBefore(TableStatus.CLEANING, cutoff);
+        if (tables.isEmpty()) return;
+        for (RestaurantTable table : tables) {
+            try {
+                table.markAvailable();
+            } catch (Exception ex) {
+                LOGGER.warn("Cannot auto-transition table {} CLEANING→AVAILABLE: {}",
+                        table.getTableCode(), ex.getMessage());
+            }
+        }
+        restaurantTableRepository.saveAll(tables);
+        LOGGER.info("Auto-transitioned {} CLEANING table(s) to AVAILABLE", tables.size());
     }
 
     @Override

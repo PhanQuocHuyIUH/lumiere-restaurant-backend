@@ -24,6 +24,7 @@ import iuh.fit.se.billing.repository.PaymentTransactionRepository;
 import iuh.fit.se.billing.repository.PaymentWebhookRepository;
 import iuh.fit.se.billing.repository.RefundRepository;
 import iuh.fit.se.ordering.api.dto.OrderResponse;
+import iuh.fit.se.ordering.domain.OrderItemStatus;
 import iuh.fit.se.billing.api.dto.InvoiceResponse;
 import iuh.fit.se.billing.api.dto.InvoiceItem;
 import iuh.fit.se.ordering.application.OrderingService;
@@ -43,12 +44,16 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -69,6 +74,7 @@ import org.springframework.web.client.RestClient;
 @Transactional
 public class BillingServiceImpl implements BillingService {
 
+    private static final Logger LOGGER = LoggerFactory.getLogger(BillingServiceImpl.class);
     private static final String OP_CREATE_PAYMENT = "CREATE_PAYMENT";
     private static final String OP_CREATE_REFUND = "CREATE_REFUND";
     private static final ZoneId VIETNAM_ZONE = ZoneId.of("Asia/Ho_Chi_Minh");
@@ -153,38 +159,81 @@ public class BillingServiceImpl implements BillingService {
         this.restClient = RestClient.builder().build();
     }
 
-        @Override
-        public InvoiceResponse getInvoiceForOrder(Long orderId) {
-        OrderResponse order = orderingService.getOrderDetail(orderId);
+    @Override
+    @Transactional(readOnly = true)
+    public InvoiceResponse getInvoiceForOrder(Long orderId) {
+        try {
+            OrderResponse order = orderingService.getOrderDetail(orderId);
 
-        var paymentOpt = paymentRepository.findTopByOrderIdAndStatusOrderByCreatedAtDesc(orderId, PaymentStatus.SUCCESS)
-            .or(() -> paymentRepository.findTopByOrderIdOrderByCreatedAtDesc(orderId));
+            Optional<Payment> paymentOpt = paymentRepository
+                    .findTopByOrderIdAndStatusOrderByCreatedAtDesc(orderId, PaymentStatus.SUCCESS)
+                    .or(() -> paymentRepository.findTopByOrderIdOrderByCreatedAtDesc(orderId));
 
-        var items = order.items().stream().map(it -> {
-            String name = "";
-            try {
-                var menuItem = menuService.getItem(it.menuItemId());
-                if (menuItem != null) name = menuItem.name();
-            } catch (Exception ex) {
-                // fallback to empty name
+            List<iuh.fit.se.ordering.api.dto.OrderItemResponse> orderItems =
+                    order.items() == null ? List.<iuh.fit.se.ordering.api.dto.OrderItemResponse>of() : order.items();
+
+            // Only items that contribute to the bill: skip cancelled lines and non-billable combo children.
+            // Matches refreshOrderTotal() so JSON invoice stays consistent with totals & UI.
+            List<iuh.fit.se.ordering.api.dto.OrderItemResponse> billableItems = orderItems.stream()
+                    .filter(it -> it.billable() && it.status() != OrderItemStatus.CANCELLED)
+                    .toList();
+
+            // Bulk-fetch menu names only for IDs missing from the upstream response (avoid N+1).
+            List<Long> missingMenuIds = billableItems.stream()
+                    .filter(it -> it.menuItemId() != null
+                            && (it.menuItemName() == null || it.menuItemName().isBlank()))
+                    .map(iuh.fit.se.ordering.api.dto.OrderItemResponse::menuItemId)
+                    .distinct()
+                    .toList();
+            Map<Long, String> menuNames = new HashMap<>();
+            if (!missingMenuIds.isEmpty()) {
+                try {
+                    menuService.getMenuItemsBulk(missingMenuIds).forEach(m -> {
+                        if (m != null && m.id() != null) {
+                            menuNames.put(m.id(), m.name() == null ? "" : m.name());
+                        }
+                    });
+                } catch (Exception ex) {
+                    LOGGER.warn("Bulk fetch menu names failed for order {} — falling back to empty names", orderId, ex);
+                }
             }
 
-            return new InvoiceItem(name, it.quantity(), it.unitPrice(), it.subtotal());
-        }).toList();
+            List<InvoiceItem> items = billableItems.stream().map(it -> {
+                String name = it.menuItemName();
+                if (name == null || name.isBlank()) {
+                    name = it.menuItemId() == null ? "" : menuNames.getOrDefault(it.menuItemId(), "");
+                }
+                int qty = it.quantity() == null ? 0 : it.quantity();
+                BigDecimal unitPrice = it.unitPrice() == null ? BigDecimal.ZERO : it.unitPrice();
+                BigDecimal subtotalLine = it.subtotal() == null ? BigDecimal.ZERO : it.subtotal();
+                return new InvoiceItem(name, qty, unitPrice, subtotalLine);
+            }).toList();
 
-        BigDecimal subtotal = order.subtotalAmount() != null ? order.subtotalAmount() : BigDecimal.ZERO;
-        BigDecimal tax = order.taxAmount() != null ? order.taxAmount() : BigDecimal.ZERO;
-        BigDecimal discount = BigDecimal.ZERO;
-        BigDecimal total = order.totalAmount() != null ? order.totalAmount() : subtotal.add(tax);
+            BigDecimal subtotal = order.subtotalAmount() != null ? order.subtotalAmount() : BigDecimal.ZERO;
+            BigDecimal tax = order.taxAmount() != null ? order.taxAmount() : BigDecimal.ZERO;
+            BigDecimal discount = BigDecimal.ZERO;
+            BigDecimal total = order.totalAmount() != null ? order.totalAmount() : subtotal.add(tax);
 
-        String paymentMethod = paymentOpt.map(p -> p.getPaymentMethod() == null ? "" : p.getPaymentMethod().name()).orElse("");
-        Instant paymentTime = paymentOpt.map(p -> p.getPaidAt()).orElse(order.paidAt());
-        Long cashierId = paymentOpt.map(p -> p.getCashierId()).orElse(order.confirmedById());
+            String paymentMethod = paymentOpt
+                    .map(p -> p.getPaymentMethod() == null ? "" : p.getPaymentMethod().name())
+                    .orElse("");
+            Instant paymentTime = paymentOpt.map(Payment::getPaidAt).orElse(order.paidAt());
+            Long cashierId = paymentOpt.map(Payment::getCashierId).orElse(order.confirmedById());
 
-        String invoiceNumber = String.format("INV-%d-%d", orderId, System.currentTimeMillis());
+            String invoiceNumber = String.format("INV-%d-%d", orderId, System.currentTimeMillis());
 
-        return new InvoiceResponse(orderId, invoiceNumber, items, subtotal, tax, discount, total, paymentMethod, paymentTime, cashierId);
+            return new InvoiceResponse(
+                    orderId, invoiceNumber, items, subtotal, tax, discount, total,
+                    paymentMethod, paymentTime, cashierId
+            );
+        } catch (DomainException ex) {
+            // Re-throw domain errors (incl. ResourceNotFoundException) so they map to proper 4xx
+            throw ex;
+        } catch (Exception ex) {
+            LOGGER.error("Failed to build invoice for order {}", orderId, ex);
+            throw new DomainException("Unable to build invoice for order " + orderId + ": " + ex.getMessage());
         }
+    }
 
     @Override
     public PaymentResponse createPayment(CreatePaymentRequest request, String idempotencyKey) {

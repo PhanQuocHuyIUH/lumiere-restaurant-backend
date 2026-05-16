@@ -10,10 +10,10 @@ import iuh.fit.se.analytics.api.dto.TopMenuItemEntry;
 import iuh.fit.se.analytics.application.AnalyticsService;
 import iuh.fit.se.analytics.domain.OrderEvent;
 import iuh.fit.se.analytics.repository.OrderEventRepository;
-import iuh.fit.se.shared.ai.AiClient;
-import iuh.fit.se.shared.ai.AiOperation;
-import iuh.fit.se.shared.ai.client.dto.ForecastRequest;
-import iuh.fit.se.shared.ai.client.dto.ForecastResponse;
+import iuh.fit.se.ai.AiClient;
+import iuh.fit.se.ai.AiOperation;
+import iuh.fit.se.ai.client.dto.ForecastRequest;
+import iuh.fit.se.ai.client.dto.ForecastResponse;
 import iuh.fit.se.shared.event.DomainEvent;
 import iuh.fit.se.shared.event.KitchenTaskDoneEvent;
 import iuh.fit.se.shared.event.OrderCancelledEvent;
@@ -99,6 +99,8 @@ public class AnalyticsServiceImpl implements AnalyticsService {
                 normalizeCount(summary == null ? null : summary.getConfirmedOrders()),
                 normalizeCount(summary == null ? null : summary.getCancelledOrders()),
                 normalizeAmount(summary == null ? null : summary.getTotalRevenue()),
+                normalizeAmount(summary == null ? null : summary.getTotalNetRevenue()),
+                normalizeAmount(summary == null ? null : summary.getTotalTax()),
                 normalizeCount(summary == null ? null : summary.getSuccessfulPayments()),
                 normalizeCount(summary == null ? null : summary.getFailedPayments()),
                 fromDate,
@@ -125,12 +127,22 @@ public class AnalyticsServiceImpl implements AnalyticsService {
                 .map(row -> new RevenuePeriodEntry(
                         formatPeriodLabel(row.getPeriod(), effectiveGroupBy),
                         normalizeAmount(row.getRevenue()),
+                        normalizeAmount(row.getNetRevenue()),
+                        normalizeAmount(row.getTaxAmount()),
                         normalizeCount(row.getOrderCount())
                 ))
                 .toList();
 
         BigDecimal totalRevenue = periods.stream()
                 .map(RevenuePeriodEntry::revenue)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        BigDecimal totalNetRevenue = periods.stream()
+                .map(RevenuePeriodEntry::netRevenue)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        BigDecimal totalTax = periods.stream()
+                .map(RevenuePeriodEntry::taxAmount)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
 
         Long totalOrders = periods.stream()
@@ -156,6 +168,8 @@ public class AnalyticsServiceImpl implements AnalyticsService {
                 toDate,
                 effectiveGroupBy.name(),
                 totalRevenue,
+                totalNetRevenue,
+                totalTax,
                 totalOrders,
                 periods,
                 topItems,

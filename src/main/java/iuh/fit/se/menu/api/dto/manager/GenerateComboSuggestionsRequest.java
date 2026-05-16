@@ -1,6 +1,6 @@
 package iuh.fit.se.menu.api.dto.manager;
 
-import iuh.fit.se.shared.ai.client.dto.ComboGenerateRequest;
+import iuh.fit.se.ai.client.dto.ComboGenerateRequest;
 import jakarta.validation.constraints.DecimalMax;
 import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.Max;

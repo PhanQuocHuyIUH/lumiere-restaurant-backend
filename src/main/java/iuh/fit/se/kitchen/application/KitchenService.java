@@ -33,4 +33,8 @@ public interface KitchenService {
     List<KitchenTaskResponse> createTasksForOrder(OrderConfirmedEvent event);
 
     List<KitchenTaskCookData> getRecentCompletedTasksForMenuItem(Long menuItemId, int limit);
+
+    KitchenTaskResponse cancelTask(Long taskId);
+
+    void cancelTasksForOrderItems(List<Long> orderItemIds);
 }

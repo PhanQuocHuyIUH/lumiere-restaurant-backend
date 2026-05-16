@@ -4,6 +4,7 @@ import iuh.fit.se.ordering.domain.OrderItem;
 import iuh.fit.se.ordering.domain.OrderItemStatus;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -29,6 +30,8 @@ public interface OrderItemRepository extends JpaRepository<OrderItem, Long> {
     );
 
     List<OrderItem> findAllByRevisionIdOrderByIdAsc(Long revisionId);
+
+    List<OrderItem> findAllByRevisionIdInOrderByIdAsc(Collection<Long> revisionIds);
 
     @Query("""
             select coalesce(sum(oi.subtotal), 0)

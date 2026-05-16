@@ -3,6 +3,16 @@
 -- =====================================================
 
 -- ─────────────────────────────────────────────
+-- SYSTEM SETTINGS (public schema)
+-- ─────────────────────────────────────────────
+CREATE TABLE system_settings (
+    key        VARCHAR(100) PRIMARY KEY,
+    value      TEXT         NOT NULL,
+    updated_at TIMESTAMPTZ,
+    updated_by BIGINT
+);
+
+-- ─────────────────────────────────────────────
 -- IDENTITY
 -- ─────────────────────────────────────────────
 CREATE TABLE identity.staff (
@@ -33,20 +43,22 @@ CREATE TABLE menu.menu_categories (
 );
 
 CREATE TABLE menu.menu_items (
-    id               BIGINT                  GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    category_id      BIGINT                  NOT NULL REFERENCES menu.menu_categories(id) ON DELETE RESTRICT,
-    name             VARCHAR(255)            NOT NULL,
-    description      TEXT,
-    price            NUMERIC(12,2)           NOT NULL CHECK (price >= 0),
-    cook_time        INT                     CHECK (cook_time >= 0),
-    image_url        TEXT,
-    image_public_id  VARCHAR(255),
-    is_available     BOOLEAN                 NOT NULL DEFAULT TRUE,
-    item_type        menu_item_type_enum     NOT NULL DEFAULT 'SINGLE',
-    combo_kind       combo_kind_enum,
-    created_at       TIMESTAMPTZ             NOT NULL DEFAULT NOW(),
-    updated_at       TIMESTAMPTZ,
-    deleted_at       TIMESTAMPTZ,
+    id                BIGINT              GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    category_id       BIGINT              NOT NULL REFERENCES menu.menu_categories(id) ON DELETE RESTRICT,
+    name              VARCHAR(255)        NOT NULL,
+    description       TEXT,
+    price_vnd         BIGINT              NOT NULL CHECK (price_vnd >= 0),
+    cook_time         INT                 CHECK (cook_time >= 0),
+    image_url         TEXT,
+    image_public_id   VARCHAR(255),
+    is_available      BOOLEAN             NOT NULL DEFAULT TRUE,
+    item_type         menu_item_type_enum NOT NULL DEFAULT 'SINGLE',
+    combo_kind        combo_kind_enum,
+    item_tax_mode     VARCHAR(20)         CHECK (item_tax_mode IN ('NO_TAX', 'EXCLUSIVE', 'INCLUSIVE')),
+    item_tax_rate_bps INT                 CHECK (item_tax_rate_bps >= 0),
+    created_at        TIMESTAMPTZ         NOT NULL DEFAULT NOW(),
+    updated_at        TIMESTAMPTZ,
+    deleted_at        TIMESTAMPTZ,
     CONSTRAINT ck_menu_items_combo_kind CHECK (
         (item_type = 'SINGLE' AND combo_kind IS NULL)
         OR
@@ -70,13 +82,13 @@ CREATE INDEX idx_combo_fixed_combo     ON menu.combo_fixed_components(combo_item
 CREATE INDEX idx_combo_fixed_component ON menu.combo_fixed_components(component_item_id);
 
 CREATE TABLE menu.combo_pick_slots (
-    id            BIGINT      GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    combo_item_id BIGINT      NOT NULL REFERENCES menu.menu_items(id) ON DELETE CASCADE,
+    id            BIGINT       GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    combo_item_id BIGINT       NOT NULL REFERENCES menu.menu_items(id) ON DELETE CASCADE,
     name          VARCHAR(255) NOT NULL,
-    min_select    INT         NOT NULL DEFAULT 0 CHECK (min_select >= 0),
-    max_select    INT         NOT NULL            CHECK (max_select >= 0),
-    display_order INT         NOT NULL DEFAULT 0,
-    created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    min_select    INT          NOT NULL DEFAULT 0 CHECK (min_select >= 0),
+    max_select    INT          NOT NULL            CHECK (max_select >= 0),
+    display_order INT          NOT NULL DEFAULT 0,
+    created_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
     CONSTRAINT ck_combo_pick_slot_min_max CHECK (min_select <= max_select)
 );
 CREATE INDEX idx_combo_pick_slots_combo ON menu.combo_pick_slots(combo_item_id);
@@ -92,7 +104,7 @@ CREATE INDEX idx_combo_pick_slot_items_slot ON menu.combo_pick_slot_items(slot_i
 CREATE INDEX idx_combo_pick_slot_items_item ON menu.combo_pick_slot_items(menu_item_id);
 
 -- ─────────────────────────────────────────────
--- INVENTORY (added in legacy V10)
+-- INVENTORY
 -- ─────────────────────────────────────────────
 CREATE TABLE inventory.ingredients (
     id                  BIGINT               GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -124,11 +136,10 @@ CREATE TABLE inventory.stock_transactions (
 CREATE INDEX idx_stock_txn_ingredient ON inventory.stock_transactions(ingredient_id);
 CREATE INDEX idx_stock_txn_created    ON inventory.stock_transactions(created_at DESC);
 
--- menu_item_ingredients links menu items to their ingredient quantities (recipe)
 CREATE TABLE menu.menu_item_ingredients (
     id            BIGINT        GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    menu_item_id  BIGINT        NOT NULL REFERENCES menu.menu_items(id)        ON DELETE CASCADE,
-    ingredient_id BIGINT        NOT NULL REFERENCES inventory.ingredients(id)  ON DELETE RESTRICT,
+    menu_item_id  BIGINT        NOT NULL REFERENCES menu.menu_items(id)       ON DELETE CASCADE,
+    ingredient_id BIGINT        NOT NULL REFERENCES inventory.ingredients(id) ON DELETE RESTRICT,
     quantity      NUMERIC(12,2) NOT NULL CHECK (quantity > 0),
     created_at    TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
     CONSTRAINT uq_menu_item_ingredient UNIQUE (menu_item_id, ingredient_id)
@@ -191,51 +202,58 @@ CREATE INDEX idx_qr_sessions_expires_at   ON table_mgmt.qr_sessions(expires_at);
 -- SHIFT
 -- ─────────────────────────────────────────────
 CREATE TABLE shift.cashier_shifts (
-    id            BIGINT        GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    cashier_id    BIGINT        NOT NULL REFERENCES identity.staff(id) ON DELETE RESTRICT,
-    opened_by     BIGINT        REFERENCES identity.staff(id) ON DELETE SET NULL,
-    closed_by     BIGINT        REFERENCES identity.staff(id) ON DELETE SET NULL,
-    opened_at     TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
-    closed_at     TIMESTAMPTZ,
-    opening_total NUMERIC(12,2) NOT NULL CHECK (opening_total >= 0),
-    closing_total NUMERIC(12,2)          CHECK (closing_total >= 0),
-    notes         TEXT,
-    closing_notes TEXT,
-    created_at    TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
-    updated_at    TIMESTAMPTZ,
-    deleted_at    TIMESTAMPTZ,
+    id                BIGINT        GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    cashier_id        BIGINT        NOT NULL REFERENCES identity.staff(id) ON DELETE RESTRICT,
+    opened_by         BIGINT        REFERENCES identity.staff(id) ON DELETE SET NULL,
+    closed_by         BIGINT        REFERENCES identity.staff(id) ON DELETE SET NULL,
+    opened_at         TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+    closed_at         TIMESTAMPTZ,
+    opening_total_vnd BIGINT        NOT NULL CHECK (opening_total_vnd >= 0),
+    closing_total_vnd BIGINT                 CHECK (closing_total_vnd >= 0),
+    notes             TEXT,
+    closing_notes     TEXT,
+    created_at        TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+    updated_at        TIMESTAMPTZ,
+    deleted_at        TIMESTAMPTZ,
     CONSTRAINT uq_cashier_shift_concurrent UNIQUE (cashier_id, opened_at)
 );
-CREATE INDEX idx_cashier_shifts_cashier_id ON shift.cashier_shifts(cashier_id)              WHERE deleted_at IS NULL;
-CREATE INDEX idx_cashier_shifts_opened_at  ON shift.cashier_shifts(opened_at DESC)          WHERE deleted_at IS NULL;
-CREATE INDEX idx_cashier_shifts_closed_at  ON shift.cashier_shifts(closed_at)               WHERE closed_at IS NOT NULL AND deleted_at IS NULL;
-CREATE INDEX idx_cashier_shifts_active     ON shift.cashier_shifts(cashier_id, closed_at)   WHERE closed_at IS NULL AND deleted_at IS NULL;
-CREATE INDEX idx_cashier_shifts_opened_by  ON shift.cashier_shifts(opened_by)               WHERE opened_by IS NOT NULL AND deleted_at IS NULL;
-CREATE INDEX idx_cashier_shifts_closed_by  ON shift.cashier_shifts(closed_by)               WHERE closed_by IS NOT NULL AND deleted_at IS NULL;
+CREATE INDEX idx_cashier_shifts_cashier_id ON shift.cashier_shifts(cashier_id)             WHERE deleted_at IS NULL;
+CREATE INDEX idx_cashier_shifts_opened_at  ON shift.cashier_shifts(opened_at DESC)         WHERE deleted_at IS NULL;
+CREATE INDEX idx_cashier_shifts_closed_at  ON shift.cashier_shifts(closed_at)              WHERE closed_at IS NOT NULL AND deleted_at IS NULL;
+CREATE INDEX idx_cashier_shifts_active     ON shift.cashier_shifts(cashier_id, closed_at)  WHERE closed_at IS NULL AND deleted_at IS NULL;
+CREATE INDEX idx_cashier_shifts_opened_by  ON shift.cashier_shifts(opened_by)              WHERE opened_by IS NOT NULL AND deleted_at IS NULL;
+CREATE INDEX idx_cashier_shifts_closed_by  ON shift.cashier_shifts(closed_by)              WHERE closed_by IS NOT NULL AND deleted_at IS NULL;
 
 -- ─────────────────────────────────────────────
 -- ORDERING
 -- ─────────────────────────────────────────────
 CREATE TABLE ordering.orders (
-    id                 BIGINT            GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    table_id           BIGINT            NOT NULL REFERENCES table_mgmt.tables(id) ON DELETE RESTRICT,
-    status             order_status_enum NOT NULL DEFAULT 'CREATED',
-    total_amount       NUMERIC(12,2)     NOT NULL DEFAULT 0 CHECK (total_amount >= 0),
-    confirmed_by       BIGINT            REFERENCES identity.staff(id) ON DELETE SET NULL,
-    served_by          BIGINT            REFERENCES identity.staff(id) ON DELETE SET NULL,
-    note               TEXT,
-    split_bill_allowed BOOLEAN           NOT NULL DEFAULT FALSE,
-    created_at         TIMESTAMPTZ       NOT NULL DEFAULT NOW(),
-    confirmed_at       TIMESTAMPTZ,
-    ready_at           TIMESTAMPTZ,
-    served_at          TIMESTAMPTZ,
-    paid_at            TIMESTAMPTZ,
-    cancelled_at       TIMESTAMPTZ
+    id                   BIGINT            GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    table_id             BIGINT            NOT NULL REFERENCES table_mgmt.tables(id) ON DELETE RESTRICT,
+    status               order_status_enum NOT NULL DEFAULT 'CREATED',
+    total_amount_vnd     BIGINT            NOT NULL DEFAULT 0 CHECK (total_amount_vnd >= 0),
+    subtotal_amount_vnd  BIGINT            NOT NULL DEFAULT 0 CHECK (subtotal_amount_vnd >= 0),
+    tax_amount_vnd       BIGINT            NOT NULL DEFAULT 0 CHECK (tax_amount_vnd >= 0),
+    tax_mode             VARCHAR(20)       NOT NULL DEFAULT 'NO_TAX'
+                             CHECK (tax_mode IN ('NO_TAX', 'EXCLUSIVE', 'INCLUSIVE', 'MIXED')),
+    tax_rate_bps         INT               NOT NULL DEFAULT 0   CHECK (tax_rate_bps >= 0),
+    tax_snapshot_at      TIMESTAMPTZ,
+    tax_snapshot_by      BIGINT            REFERENCES identity.staff(id) ON DELETE SET NULL,
+    tax_snapshot_version INT               NOT NULL DEFAULT 1   CHECK (tax_snapshot_version >= 1),
+    confirmed_by         BIGINT            REFERENCES identity.staff(id) ON DELETE SET NULL,
+    served_by            BIGINT            REFERENCES identity.staff(id) ON DELETE SET NULL,
+    note                 TEXT,
+    created_at           TIMESTAMPTZ       NOT NULL DEFAULT NOW(),
+    confirmed_at         TIMESTAMPTZ,
+    ready_at             TIMESTAMPTZ,
+    served_at            TIMESTAMPTZ,
+    paid_at              TIMESTAMPTZ,
+    cancelled_at         TIMESTAMPTZ
 );
-CREATE INDEX idx_orders_table_status     ON ordering.orders(table_id, status);
-CREATE INDEX idx_orders_created_at       ON ordering.orders(created_at DESC);
+CREATE INDEX idx_orders_table_status      ON ordering.orders(table_id, status);
+CREATE INDEX idx_orders_created_at        ON ordering.orders(created_at DESC);
 CREATE INDEX idx_orders_status_created_at ON ordering.orders(status, created_at DESC);
-CREATE INDEX idx_orders_active           ON ordering.orders(table_id, created_at DESC)
+CREATE INDEX idx_orders_active            ON ordering.orders(table_id, created_at DESC)
     WHERE status NOT IN ('PAID', 'CANCELLED');
 CREATE UNIQUE INDEX uq_orders_single_active_per_table ON ordering.orders(table_id)
     WHERE status IN ('CREATED', 'CONFIRMED', 'PREPARING', 'READY', 'SERVED');
@@ -245,8 +263,8 @@ CREATE TABLE ordering.order_revisions (
     order_id         BIGINT               NOT NULL REFERENCES ordering.orders(id) ON DELETE CASCADE,
     revision_number  INT                  NOT NULL CHECK (revision_number > 0),
     revision_source  revision_source_enum NOT NULL,
-    created_by_staff BIGINT               REFERENCES identity.staff(id)          ON DELETE SET NULL,
-    qr_session_id    VARCHAR(64)          REFERENCES table_mgmt.qr_sessions(session_id) ON DELETE SET NULL,
+    created_by_staff BIGINT               REFERENCES identity.staff(id)                   ON DELETE SET NULL,
+    qr_session_id    VARCHAR(64)          REFERENCES table_mgmt.qr_sessions(session_id)   ON DELETE SET NULL,
     created_at       TIMESTAMPTZ          NOT NULL DEFAULT NOW(),
     CONSTRAINT ck_order_revision_source CHECK (
         (revision_source = 'CUSTOMER_QR' AND qr_session_id    IS NOT NULL)
@@ -262,8 +280,12 @@ CREATE TABLE ordering.order_items (
     revision_id          BIGINT                 NOT NULL REFERENCES ordering.order_revisions(id) ON DELETE CASCADE,
     menu_item_id         BIGINT                 REFERENCES menu.menu_items(id) ON DELETE RESTRICT,
     quantity             INT                    NOT NULL CHECK (quantity > 0),
-    unit_price           NUMERIC(12,2)          NOT NULL CHECK (unit_price >= 0),
-    subtotal             NUMERIC(12,2)          GENERATED ALWAYS AS (quantity * unit_price) STORED,
+    unit_price_vnd       BIGINT                 NOT NULL CHECK (unit_price_vnd >= 0),
+    subtotal_vnd         BIGINT                 GENERATED ALWAYS AS (unit_price_vnd * quantity) STORED,
+    unit_tax_mode        VARCHAR(20),
+    unit_tax_rate_bps    INT,
+    net_subtotal_vnd     BIGINT,
+    tax_subtotal_vnd     BIGINT,
     note                 TEXT,
     status               order_item_status_enum NOT NULL DEFAULT 'PENDING',
     parent_order_item_id BIGINT                 REFERENCES ordering.order_items(id) ON DELETE CASCADE,
@@ -312,11 +334,11 @@ CREATE TABLE kitchen.kitchen_tasks (
         END
     ) STORED
 );
-CREATE INDEX idx_kitchen_tasks_active           ON kitchen.kitchen_tasks(status) WHERE status IN ('CREATED', 'COOKING');
-CREATE INDEX idx_kitchen_tasks_created_at       ON kitchen.kitchen_tasks(created_at DESC);
+CREATE INDEX idx_kitchen_tasks_active            ON kitchen.kitchen_tasks(status) WHERE status IN ('CREATED', 'COOKING');
+CREATE INDEX idx_kitchen_tasks_created_at        ON kitchen.kitchen_tasks(created_at DESC);
 CREATE INDEX idx_kitchen_tasks_status_created_at ON kitchen.kitchen_tasks(status, created_at DESC);
-CREATE INDEX idx_kitchen_tasks_order_id         ON kitchen.kitchen_tasks(order_id);
-CREATE INDEX idx_kitchen_tasks_menu_item_id     ON kitchen.kitchen_tasks(menu_item_id);
+CREATE INDEX idx_kitchen_tasks_order_id          ON kitchen.kitchen_tasks(order_id);
+CREATE INDEX idx_kitchen_tasks_menu_item_id      ON kitchen.kitchen_tasks(menu_item_id);
 
 CREATE TABLE kitchen.kitchen_batches (
     id                       BIGINT                    GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -331,14 +353,15 @@ CREATE TABLE kitchen.kitchen_batches (
     completed_at             TIMESTAMPTZ,
     created_at               TIMESTAMPTZ               NOT NULL DEFAULT NOW()
 );
-CREATE INDEX idx_kitchen_batches_active           ON kitchen.kitchen_batches(status) WHERE status NOT IN ('DONE');
-CREATE INDEX idx_kitchen_batches_created_at       ON kitchen.kitchen_batches(created_at DESC);
+CREATE INDEX idx_kitchen_batches_active            ON kitchen.kitchen_batches(status) WHERE status NOT IN ('DONE');
+CREATE INDEX idx_kitchen_batches_created_at        ON kitchen.kitchen_batches(created_at DESC);
 CREATE INDEX idx_kitchen_batches_status_created_at ON kitchen.kitchen_batches(status, created_at DESC);
 
+-- batch_id is NOT unique: one batch can hold multiple tasks.
 CREATE TABLE kitchen.kitchen_batch_items (
     id              BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    batch_id        BIGINT NOT NULL UNIQUE REFERENCES kitchen.kitchen_batches(id) ON DELETE CASCADE,
-    kitchen_task_id BIGINT NOT NULL UNIQUE REFERENCES kitchen.kitchen_tasks(id)   ON DELETE CASCADE
+    batch_id        BIGINT NOT NULL REFERENCES kitchen.kitchen_batches(id) ON DELETE CASCADE,
+    kitchen_task_id BIGINT NOT NULL UNIQUE REFERENCES kitchen.kitchen_tasks(id) ON DELETE CASCADE
 );
 CREATE INDEX idx_batch_items_batch ON kitchen.kitchen_batch_items(batch_id);
 
@@ -355,7 +378,7 @@ CREATE TABLE kitchen.batch_performance (
     ) STORED,
     recorded_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-CREATE INDEX idx_batch_perf_batch         ON kitchen.batch_performance(batch_id);
+CREATE INDEX idx_batch_perf_batch              ON kitchen.batch_performance(batch_id);
 CREATE INDEX idx_batch_performance_recorded_at ON kitchen.batch_performance(recorded_at DESC);
 
 -- ─────────────────────────────────────────────
@@ -363,9 +386,14 @@ CREATE INDEX idx_batch_performance_recorded_at ON kitchen.batch_performance(reco
 -- ─────────────────────────────────────────────
 CREATE TABLE payment.payments (
     id                      BIGINT                GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    order_id                BIGINT                NOT NULL REFERENCES ordering.orders(id)        ON DELETE RESTRICT,
-    shift_id                BIGINT                         REFERENCES shift.cashier_shifts(id)   ON DELETE SET NULL,
-    amount                  NUMERIC(12,2)         NOT NULL CHECK (amount > 0),
+    order_id                BIGINT                NOT NULL REFERENCES ordering.orders(id)      ON DELETE RESTRICT,
+    shift_id                BIGINT                         REFERENCES shift.cashier_shifts(id) ON DELETE SET NULL,
+    amount_vnd              BIGINT                NOT NULL CHECK (amount_vnd > 0),
+    subtotal_amount_vnd     BIGINT                NOT NULL DEFAULT 0 CHECK (subtotal_amount_vnd >= 0),
+    tax_amount_vnd          BIGINT                NOT NULL DEFAULT 0 CHECK (tax_amount_vnd >= 0),
+    tax_mode                VARCHAR(20)           NOT NULL DEFAULT 'NO_TAX'
+                                CHECK (tax_mode IN ('NO_TAX', 'EXCLUSIVE', 'INCLUSIVE', 'MIXED')),
+    tax_rate_bps            INT                   NOT NULL DEFAULT 0 CHECK (tax_rate_bps >= 0),
     payment_method          payment_method_enum   NOT NULL,
     provider                payment_provider_enum NOT NULL,
     status                  payment_status_enum   NOT NULL DEFAULT 'PENDING',
@@ -390,13 +418,13 @@ CREATE TABLE payment.payments (
     paid_at                 TIMESTAMPTZ,
     failed_at               TIMESTAMPTZ
 );
-CREATE UNIQUE INDEX uq_payment_order_success   ON payment.payments(order_id) WHERE status = 'SUCCESS';
-CREATE INDEX idx_payments_order                ON payment.payments(order_id);
-CREATE INDEX idx_payments_status               ON payment.payments(status);
-CREATE INDEX idx_payments_status_created_at    ON payment.payments(status, created_at DESC);
-CREATE INDEX idx_payments_provider_txn         ON payment.payments(provider_transaction_id) WHERE provider_transaction_id IS NOT NULL;
-CREATE INDEX idx_payments_created_at           ON payment.payments(created_at DESC);
-CREATE INDEX idx_payments_shift_id             ON payment.payments(shift_id) WHERE shift_id IS NOT NULL;
+CREATE UNIQUE INDEX uq_payment_order_success       ON payment.payments(order_id) WHERE status = 'SUCCESS';
+CREATE INDEX idx_payments_order                    ON payment.payments(order_id);
+CREATE INDEX idx_payments_status                   ON payment.payments(status);
+CREATE INDEX idx_payments_status_created_at        ON payment.payments(status, created_at DESC);
+CREATE INDEX idx_payments_provider_txn             ON payment.payments(provider_transaction_id) WHERE provider_transaction_id IS NOT NULL;
+CREATE INDEX idx_payments_created_at               ON payment.payments(created_at DESC);
+CREATE INDEX idx_payments_shift_id                 ON payment.payments(shift_id) WHERE shift_id IS NOT NULL;
 
 CREATE TABLE payment.payment_webhooks (
     id              BIGINT                GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -412,11 +440,11 @@ CREATE TABLE payment.payment_webhooks (
     processed_at    TIMESTAMPTZ,
     error_message   TEXT
 );
-CREATE INDEX idx_webhooks_payment                ON payment.payment_webhooks(payment_id) WHERE payment_id IS NOT NULL;
-CREATE INDEX idx_webhooks_status                 ON payment.payment_webhooks(provider, status);
-CREATE INDEX idx_webhooks_received               ON payment.payment_webhooks(received_at DESC);
-CREATE INDEX idx_webhooks_payload_gin            ON payment.payment_webhooks USING GIN (raw_payload);
-CREATE INDEX idx_webhooks_provider_status_received ON payment.payment_webhooks(provider, status, received_at DESC);
+CREATE INDEX idx_webhooks_payment                    ON payment.payment_webhooks(payment_id) WHERE payment_id IS NOT NULL;
+CREATE INDEX idx_webhooks_status                     ON payment.payment_webhooks(provider, status);
+CREATE INDEX idx_webhooks_received                   ON payment.payment_webhooks(received_at DESC);
+CREATE INDEX idx_webhooks_payload_gin                ON payment.payment_webhooks USING GIN (raw_payload);
+CREATE INDEX idx_webhooks_provider_status_received   ON payment.payment_webhooks(provider, status, received_at DESC);
 
 CREATE TABLE payment.payment_transactions (
     id                      BIGINT                GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
@@ -439,7 +467,7 @@ CREATE INDEX idx_payment_txn_status_created ON payment.payment_transactions(stat
 CREATE TABLE payment.refunds (
     id                 BIGINT             GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     payment_id         BIGINT             NOT NULL REFERENCES payment.payments(id) ON DELETE RESTRICT,
-    amount             NUMERIC(12,2)      NOT NULL CHECK (amount > 0),
+    amount_vnd         BIGINT             NOT NULL CHECK (amount_vnd > 0),
     reason             TEXT,
     status             refund_status_enum NOT NULL DEFAULT 'INITIATED',
     provider_refund_id VARCHAR(255),
@@ -456,14 +484,14 @@ CREATE INDEX idx_refunds_status  ON payment.refunds(status);
 -- ANALYTICS
 -- ─────────────────────────────────────────────
 CREATE TABLE analytics.order_events (
-    id           BIGINT      GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    order_id     BIGINT      NOT NULL REFERENCES ordering.orders(id) ON DELETE CASCADE,
+    id           BIGINT       GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    order_id     BIGINT       NOT NULL REFERENCES ordering.orders(id) ON DELETE CASCADE,
     event_type   VARCHAR(100) NOT NULL,
     event_source VARCHAR(50),
     actor_id     BIGINT,
     actor_type   VARCHAR(50),
     metadata     JSONB,
-    created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    created_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );
 CREATE INDEX idx_order_events_order        ON analytics.order_events(order_id);
 CREATE INDEX idx_order_events_type         ON analytics.order_events(event_type);
@@ -475,13 +503,13 @@ CREATE INDEX idx_order_events_metadata_gin ON analytics.order_events USING GIN (
 -- SUPPORT
 -- ─────────────────────────────────────────────
 CREATE TABLE support.support_requests (
-    id                   BIGINT                         GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-    message              TEXT                           NOT NULL,
-    table_code           VARCHAR(16)                    NOT NULL,
+    id                   BIGINT                      GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    message              TEXT                        NOT NULL,
+    table_code           VARCHAR(16)                 NOT NULL,
     qr_session_id        VARCHAR(64),
-    status               support_request_status_enum    NOT NULL DEFAULT 'CREATED',
+    status               support_request_status_enum NOT NULL DEFAULT 'CREATED',
     assigned_to_staff_id BIGINT,
-    created_at           TIMESTAMPTZ                    NOT NULL DEFAULT NOW(),
+    created_at           TIMESTAMPTZ                 NOT NULL DEFAULT NOW(),
     updated_at           TIMESTAMPTZ,
     deleted_at           TIMESTAMPTZ,
     CONSTRAINT fk_support_request_staff

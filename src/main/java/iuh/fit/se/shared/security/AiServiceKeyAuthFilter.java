@@ -1,7 +1,7 @@
 package iuh.fit.se.shared.security;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import iuh.fit.se.shared.config.AiProperties;
+import iuh.fit.se.ai.config.AiProperties;
 import iuh.fit.se.shared.response.ApiResponse;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;

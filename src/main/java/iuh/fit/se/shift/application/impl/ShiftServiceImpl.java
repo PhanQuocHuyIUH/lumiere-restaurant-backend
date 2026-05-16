@@ -6,6 +6,7 @@ import iuh.fit.se.shift.api.dto.CloseShiftRequest;
 import iuh.fit.se.shift.api.dto.CloseShiftResponse;
 import iuh.fit.se.shift.api.dto.OpenShiftRequest;
 import iuh.fit.se.shift.api.dto.ShiftResponse;
+import iuh.fit.se.shift.api.dto.ShiftSummaryResponse;
 import iuh.fit.se.shift.application.ShiftService;
 import iuh.fit.se.shift.domain.CashierShift;
 import iuh.fit.se.shift.repository.CashierShiftRepository;
@@ -88,6 +89,25 @@ public class ShiftServiceImpl implements ShiftService {
                 request.actualCash(),
                 discrepancy,
                 closingNotes
+        );
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public ShiftSummaryResponse previewShift(Long shiftId) {
+        CashierShift shift = repository.findById(shiftId)
+            .orElseThrow(() -> new ResourceNotFoundException("Shift", shiftId));
+        ShiftPaymentSummary summary = billingService.getShiftPaymentSummary(shiftId);
+        BigDecimal expectedCash = shift.getOpeningTotal().add(summary.cashRevenue());
+        return new ShiftSummaryResponse(
+                shift.getId(),
+                shift.getCashierId(),
+                shift.getOpenedAt(),
+                shift.getOpeningTotal(),
+                summary.cashRevenue(),
+                summary.transferRevenue(),
+                expectedCash,
+                summary.totalBills()
         );
     }
 

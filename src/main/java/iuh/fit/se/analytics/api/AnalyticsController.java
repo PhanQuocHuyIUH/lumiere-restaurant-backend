@@ -4,7 +4,7 @@ import iuh.fit.se.analytics.api.dto.AnalyticsSummaryResponse;
 import iuh.fit.se.analytics.api.dto.ForecastTrendRequest;
 import iuh.fit.se.analytics.api.dto.RevenueDetailResponse;
 import iuh.fit.se.analytics.application.AnalyticsService;
-import iuh.fit.se.shared.ai.client.dto.ForecastResponse;
+import iuh.fit.se.ai.client.dto.ForecastResponse;
 import iuh.fit.se.shared.response.ApiResponse;
 import jakarta.validation.Valid;
 import java.time.LocalDate;

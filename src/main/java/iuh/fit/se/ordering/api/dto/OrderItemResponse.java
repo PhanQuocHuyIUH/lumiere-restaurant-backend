@@ -4,11 +4,13 @@ import iuh.fit.se.ordering.domain.OrderItem;
 import iuh.fit.se.ordering.domain.OrderItemStatus;
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.Map;
 
 public record OrderItemResponse(
         Long id,
         Long revisionId,
         Long menuItemId,
+        String menuItemName,
         Long parentOrderItemId,
         Integer quantity,
         BigDecimal unitPrice,
@@ -21,13 +23,20 @@ public record OrderItemResponse(
 ) {
 
     public static OrderItemResponse from(OrderItem item) {
+        return from(item, Map.of());
+    }
+
+    public static OrderItemResponse from(OrderItem item, Map<Long, String> menuItemNames) {
+        Long menuItemId = item.getMenuItemId();
+        String name = menuItemId == null ? null : menuItemNames.get(menuItemId);
         return new OrderItemResponse(
                 item.getId(),
                 item.getRevisionId(),
-                item.getMenuItemId(),
+                menuItemId,
+                name,
                 item.getParentOrderItemId(),
                 item.getQuantity(),
-            item.getUnitPrice() == null ? BigDecimal.ZERO : item.getUnitPrice().toBigDecimal(),
+                item.getUnitPrice() == null ? BigDecimal.ZERO : item.getUnitPrice().toBigDecimal(),
                 item.calculateSubtotal(),
                 item.getNote(),
                 item.getStatus(),

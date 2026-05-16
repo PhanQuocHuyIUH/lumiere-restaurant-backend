@@ -7,6 +7,7 @@ import iuh.fit.se.shared.domain.TaxMode;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 
 public record OrderResponse(
         Long id,
@@ -21,7 +22,6 @@ public record OrderResponse(
         Long confirmedById,
         Long servedById,
         String note,
-        boolean splitBillAllowed,
         Instant createdAt,
         Instant confirmedAt,
         Instant readyAt,
@@ -33,8 +33,17 @@ public record OrderResponse(
 ) {
 
     public static OrderResponse from(Order order, Integer latestRevisionNumber, List<OrderItem> items) {
+        return from(order, latestRevisionNumber, items, Map.of());
+    }
+
+    public static OrderResponse from(
+            Order order,
+            Integer latestRevisionNumber,
+            List<OrderItem> items,
+            Map<Long, String> menuItemNames
+    ) {
         List<OrderItemResponse> itemResponses = items.stream()
-                .map(OrderItemResponse::from)
+                .map(item -> OrderItemResponse.from(item, menuItemNames))
                 .toList();
 
         return new OrderResponse(
@@ -50,7 +59,6 @@ public record OrderResponse(
                 order.getConfirmedById(),
                 order.getServedById(),
                 order.getNote(),
-                order.isSplitBillAllowed(),
                 order.getCreatedAt(),
                 order.getConfirmedAt(),
                 order.getReadyAt(),

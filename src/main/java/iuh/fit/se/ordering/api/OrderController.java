@@ -3,10 +3,8 @@ package iuh.fit.se.ordering.api;
 import iuh.fit.se.ordering.api.dto.AddRevisionRequest;
 import iuh.fit.se.ordering.api.dto.CreateOrderRequest;
 import iuh.fit.se.ordering.api.dto.OrderResponse;
-import iuh.fit.se.ordering.api.dto.RecommendMenuRequest;
 import iuh.fit.se.ordering.application.OrderingService;
 import iuh.fit.se.ordering.domain.OrderStatus;
-import iuh.fit.se.shared.ai.client.dto.RecommendResponse;
 import iuh.fit.se.shared.response.ApiResponse;
 import iuh.fit.se.shared.response.PagedResponse;
 import jakarta.validation.Valid;
@@ -65,14 +63,6 @@ public class OrderController {
         return ResponseEntity.ok(ApiResponse.ok(orderingService.getOrdersPaged(status, page, size)));
     }
 
-    @PostMapping("/recommendations")
-    public ResponseEntity<ApiResponse<RecommendResponse>> recommendItems(
-            @Valid @RequestBody RecommendMenuRequest request
-    ) {
-        RecommendResponse response = orderingService.recommend(request.toAiRequest());
-        return ResponseEntity.ok(ApiResponse.ok("Recommendations generated", response));
-    }
-
     @PostMapping("/{id}/revisions")
     public ResponseEntity<ApiResponse<OrderResponse>> addRevision(
             @PathVariable("id") Long orderId,
@@ -98,6 +88,15 @@ public class OrderController {
     ) {
         OrderResponse response = orderingService.cancelOrder(orderId, request.reason());
         return ResponseEntity.ok(ApiResponse.ok("Order cancelled", response));
+    }
+
+    @PutMapping("/{id}/items/{itemId}/cancel")
+    public ResponseEntity<ApiResponse<OrderResponse>> cancelOrderItem(
+            @PathVariable("id") Long orderId,
+            @PathVariable("itemId") Long itemId
+    ) {
+        OrderResponse response = orderingService.cancelOrderItem(orderId, itemId);
+        return ResponseEntity.ok(ApiResponse.ok("Order item cancelled", response));
     }
 
     public record CancelOrderRequest(
