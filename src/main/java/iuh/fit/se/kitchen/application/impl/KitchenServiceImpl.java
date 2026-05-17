@@ -306,6 +306,25 @@ public class KitchenServiceImpl implements KitchenService {
     @Override
     public KitchenBatchResponse startBatch(Long batchId) {
         KitchenBatch batch = getBatchEntity(batchId);
+        List<KitchenTask> batchTasks = getBatchTasks(batchId);
+
+        // Cascade: any task still CREATED transitions to COOKING and the matching
+        // OrderItem is moved to PREPARING — mirrors what startTask() does individually.
+        // Tasks already COOKING/DONE/CANCELLED are left alone.
+        List<KitchenTask> started = new ArrayList<>();
+        for (KitchenTask task : batchTasks) {
+            if (task.getStatus() != KitchenTaskStatus.CREATED) continue;
+            task.startCooking();
+            orderingService.markOrderItemPreparing(task.getOrderItemId());
+            started.add(task);
+        }
+        if (!started.isEmpty()) {
+            kitchenTaskRepository.saveAll(started);
+            started.stream()
+                    .map(KitchenTaskResponse::from)
+                    .forEach(r -> messagingTemplate.convertAndSend("/topic/kitchen/tasks", r));
+        }
+
         batch.start();
         kitchenBatchRepository.save(batch);
 
@@ -318,6 +337,29 @@ public class KitchenServiceImpl implements KitchenService {
     public KitchenBatchResponse completeBatch(Long batchId) {
         KitchenBatch batch = getBatchEntity(batchId);
         List<KitchenTask> batchTasks = getBatchTasks(batchId);
+
+        // Cascade: any task still COOKING transitions to DONE so the kitchen can
+        // finish the whole batch in one click without first ticking every dish.
+        // CANCELLED tasks are skipped; CREATED tasks block completion (kitchen must
+        // start them first — completing food that was never cooked is a bug).
+        List<KitchenTask> completed = new ArrayList<>();
+        for (KitchenTask task : batchTasks) {
+            if (task.getStatus() != KitchenTaskStatus.COOKING) continue;
+            task.complete();
+            Long orderId = orderingService.markOrderItemDone(task.getOrderItemId());
+            eventPublisher.publishEvent(new KitchenTaskDoneEvent(task.getId(), task.getOrderItemId(), orderId));
+            completed.add(task);
+        }
+        if (!completed.isEmpty()) {
+            kitchenTaskRepository.saveAll(completed);
+            completed.stream()
+                    .map(KitchenTaskResponse::from)
+                    .forEach(r -> {
+                        messagingTemplate.convertAndSend("/topic/kitchen/tasks", r);
+                        messagingTemplate.convertAndSend("/topic/waiter/item-done", r);
+                    });
+        }
+
         ensureBatchTasksCompleted(batchId, batchTasks);
 
         batch.complete();
@@ -505,9 +547,16 @@ public class KitchenServiceImpl implements KitchenService {
     }
 
     private void ensureBatchTasksCompleted(Long batchId, List<KitchenTask> tasks) {
-        boolean allDone = tasks.stream().allMatch(task -> task.getStatus() == KitchenTaskStatus.DONE);
-        if (!allDone) {
-            throw new DomainException("Cannot complete batch " + batchId + " when not all tasks are DONE");
+        // A batch is "complete" when every task is terminal (DONE or CANCELLED).
+        // After completeBatch's cascade, COOKING tasks become DONE; the only thing
+        // that should still block is a CREATED task — kitchen hasn't started it yet,
+        // so marking it complete without ever cooking is a data bug.
+        boolean allTerminal = tasks.stream().allMatch(task ->
+                task.getStatus() == KitchenTaskStatus.DONE
+                        || task.getStatus() == KitchenTaskStatus.CANCELLED);
+        if (!allTerminal) {
+            throw new DomainException("Cannot complete batch " + batchId
+                    + ": one or more tasks are still pending. Hãy nhấn 'Bắt đầu nấu' trước rồi mới hoàn thành.");
         }
     }
 

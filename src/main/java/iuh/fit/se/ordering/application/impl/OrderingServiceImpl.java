@@ -230,55 +230,18 @@ public class OrderingServiceImpl implements OrderingService {
 
     @Override
     public OrderResponse cancelOrderItem(Long orderId, Long itemId) {
-        Order order = getOrderEntity(orderId);
-        if (!REVISION_ALLOWED_STATUSES.contains(order.getStatus())) {
-            throw new DomainException("Cannot cancel item for order in status: " + order.getStatus());
-        }
-
-        OrderItem orderItem = getOrderItemEntity(itemId);
-        ensureOrderItemBelongsToOrder(orderId, orderItem);
-
-        if (orderItem.getStatus() == OrderItemStatus.CANCELLED) {
-            return toOrderResponse(order);
-        }
-
-        // Staff can only cancel items the kitchen has not yet started (PENDING)
-        if (orderItem.getStatus() != OrderItemStatus.PENDING) {
-            throw new DomainException("Staff can only cancel items that have not yet started cooking (PENDING)");
-        }
-
-        List<OrderItem> toCancel = new ArrayList<>();
-        toCancel.add(orderItem);
-
-        if (orderItem.isComboParent()) {
-            List<OrderItem> children = loadAllOrderItems(orderId).stream()
-                    .filter(i -> orderItem.getId().equals(i.getParentOrderItemId()))
-                    .filter(i -> i.getStatus() != OrderItemStatus.CANCELLED)
-                    .toList();
-            boolean allPending = children.stream().allMatch(c -> c.getStatus() == OrderItemStatus.PENDING);
-            if (!allPending) {
-                throw new DomainException("Cannot cancel combo: kitchen has already started on one or more items");
-            }
-            toCancel.addAll(children);
-        }
-
-        toCancel.forEach(OrderItem::cancel);
-        orderItemRepository.saveAll(toCancel);
-
-        List<Long> nonParentIds = toCancel.stream()
-                .filter(i -> !i.isComboParent())
-                .map(OrderItem::getId)
-                .toList();
-        if (!nonParentIds.isEmpty()) {
-            eventPublisher.publishEvent(new OrderItemCancelledEvent(orderId, nonParentIds));
-        }
-
-        refreshOrderTotal(order);
-        return toOrderResponse(order);
+        // Staff (waiter/manager) can cancel PENDING or PREPARING items — same semantics as kitchen.
+        // OrderItemCancelledEvent cascades into KitchenService.cancelTasksForOrderItems so the
+        // kitchen task is cancelled regardless of whether the cook already pressed "Bắt đầu".
+        return cancelOrderItemInternal(orderId, itemId);
     }
 
     @Override
     public OrderResponse cancelOrderItemByKitchen(Long orderId, Long itemId) {
+        return cancelOrderItemInternal(orderId, itemId);
+    }
+
+    private OrderResponse cancelOrderItemInternal(Long orderId, Long itemId) {
         Order order = getOrderEntity(orderId);
         if (!REVISION_ALLOWED_STATUSES.contains(order.getStatus())) {
             throw new DomainException("Cannot cancel item for order in status: " + order.getStatus());
@@ -292,14 +255,13 @@ public class OrderingServiceImpl implements OrderingService {
         }
 
         if (orderItem.getStatus() != OrderItemStatus.PENDING && orderItem.getStatus() != OrderItemStatus.PREPARING) {
-            throw new DomainException("Kitchen can only cancel items that are PENDING or PREPARING");
+            throw new DomainException("Chỉ huỷ được món đang chờ hoặc đang nấu");
         }
 
         List<OrderItem> allItems = loadAllOrderItems(orderId);
         List<OrderItem> toCancel = new ArrayList<>();
 
         if (orderItem.getParentOrderItemId() != null) {
-            // Combo child: cancel the entire combo (parent + all siblings including this item)
             Long parentId = orderItem.getParentOrderItemId();
             allItems.stream()
                     .filter(i -> i.getId().equals(parentId))
@@ -310,7 +272,6 @@ public class OrderingServiceImpl implements OrderingService {
                     .filter(i -> i.getStatus() != OrderItemStatus.CANCELLED)
                     .forEach(toCancel::add);
         } else if (orderItem.isComboParent()) {
-            // Combo parent: cancel parent + all children
             toCancel.add(orderItem);
             allItems.stream()
                     .filter(i -> orderItem.getId().equals(i.getParentOrderItemId()))
