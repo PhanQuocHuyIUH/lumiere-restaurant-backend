@@ -6,6 +6,7 @@ import iuh.fit.se.billing.domain.PaymentProvider;
 import iuh.fit.se.billing.domain.PaymentStatus;
 import java.time.Instant;
 import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -35,6 +36,10 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
     Optional<Payment> findTopByOrderIdAndStatusOrderByCreatedAtDesc(Long orderId, PaymentStatus status);
 
     boolean existsByOrderIdAndStatus(Long orderId, PaymentStatus status);
+
+    List<Payment> findAllByOrderIdAndStatus(Long orderId, PaymentStatus status);
+
+    List<Payment> findAllByOrderIdOrderByCreatedAtDesc(Long orderId);
 
     Optional<Payment> findTopByProviderAndProviderTransactionIdOrderByCreatedAtDesc(
             PaymentProvider provider,

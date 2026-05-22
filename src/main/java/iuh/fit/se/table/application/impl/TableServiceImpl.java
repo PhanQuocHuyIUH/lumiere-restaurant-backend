@@ -8,7 +8,6 @@ import com.google.zxing.common.BitMatrix;
 import com.google.zxing.qrcode.QRCodeWriter;
 import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel;
 import iuh.fit.se.ordering.api.dto.OrderResponse;
-import iuh.fit.se.ordering.domain.Order;
 import iuh.fit.se.ordering.domain.OrderItem;
 import iuh.fit.se.ordering.domain.OrderRevision;
 import iuh.fit.se.ordering.domain.OrderStatus;
@@ -132,15 +131,24 @@ public class TableServiceImpl implements TableService {
 
     @Override
     public OrderResponse getCurrentOrderByTableCode(String tableCode) {
-        RestaurantTable table = getActiveTable(tableCode);
-        Order order = orderRepository.findTopByTableIdAndStatusInOrderByCreatedAtDesc(table.getId(), ACTIVE_ORDER_STATUSES)
+        return findCurrentOrderByTableCode(tableCode)
                 .orElseThrow(() -> new ResourceNotFoundException("Active order", "tableCode=" + tableCode));
+    }
 
-        OrderRevision latestRevision = orderRevisionRepository.findTopByOrderIdOrderByRevisionNumberDesc(order.getId())
-                .orElseThrow(() -> new ResourceNotFoundException("OrderRevision", "orderId=" + order.getId()));
-        List<OrderItem> latestItems = orderItemRepository.findAllByRevisionIdOrderByIdAsc(latestRevision.getId());
-
-        return OrderResponse.from(order, latestRevision.getRevisionNumber(), latestItems);
+    @Override
+    public Optional<OrderResponse> findCurrentOrderByTableCode(String tableCode) {
+        RestaurantTable table = getActiveTable(tableCode);
+        return orderRepository
+                .findTopByTableIdAndStatusInOrderByCreatedAtDesc(table.getId(), ACTIVE_ORDER_STATUSES)
+                .map(order -> {
+                    OrderRevision latestRevision = orderRevisionRepository
+                            .findTopByOrderIdOrderByRevisionNumberDesc(order.getId())
+                            .orElseThrow(() -> new ResourceNotFoundException(
+                                    "OrderRevision", "orderId=" + order.getId()));
+                    List<OrderItem> latestItems = orderItemRepository
+                            .findAllByRevisionIdOrderByIdAsc(latestRevision.getId());
+                    return OrderResponse.from(order, latestRevision.getRevisionNumber(), latestItems);
+                });
     }
 
     @Override
@@ -270,6 +278,9 @@ public class TableServiceImpl implements TableService {
 
         table.markAvailable();
         restaurantTableRepository.save(table);
+        // Customer may have left without paying (cashier voided the order); make
+        // sure their device cannot reuse the QR session against the next guest.
+        revokeActiveSessionsForTable(tableId);
     }
 
     @Override
@@ -282,6 +293,9 @@ public class TableServiceImpl implements TableService {
 
         table.markCleaning();
         restaurantTableRepository.save(table);
+        // Payment just completed — kill the QR session so the leaving customer
+        // can't keep adding orders to the next party seated at this table.
+        revokeActiveSessionsForTable(tableId);
     }
 
     @Override
@@ -317,7 +331,43 @@ public class TableServiceImpl implements TableService {
         }
 
         RestaurantTable saved = restaurantTableRepository.save(table);
+        // Manual override by cashier/manager: when they drop the table back to a
+        // "freed" state, also revoke any lingering ACTIVE QR session so the
+        // previous customer's phone can't keep using its session token.
+        if (newStatus == TableStatus.AVAILABLE || newStatus == TableStatus.CLEANING) {
+            revokeActiveSessionsForTable(saved.getId());
+        }
         return TableData.from(saved);
+    }
+
+    /**
+     * Revoke every ACTIVE QR session for this table. Mirrors {@code session.revoke()}
+     * to the cache so the auth check blocks the next request without waiting for
+     * cache TTL. Failures on individual cache deletes are non-fatal.
+     */
+    private void revokeActiveSessionsForTable(Long tableId) {
+        List<QrSession> active = qrSessionRepository.findAllByTableIdAndStatus(
+                tableId, QrSessionStatus.ACTIVE);
+        if (active.isEmpty()) return;
+
+        Instant now = Instant.now();
+        for (QrSession session : active) {
+            // Defensive: if the row is already past expiry, mark EXPIRED so we
+            // don't overwrite a more accurate terminal state with REVOKED.
+            if (session.getExpiresAt() != null && session.getExpiresAt().isBefore(now)) {
+                session.markExpired();
+            } else {
+                session.revoke();
+            }
+            try {
+                qrSessionCacheService.delete(session.getSessionId());
+            } catch (Exception ex) {
+                LOGGER.warn("Failed to evict revoked QR session {} from cache: {}",
+                        session.getSessionId(), ex.getMessage());
+            }
+        }
+        qrSessionRepository.saveAll(active);
+        LOGGER.info("Revoked {} QR session(s) for table {}", active.size(), tableId);
     }
 
     private RestaurantTable getActiveTableByQrKey(String qrKey) {

@@ -1,5 +1,6 @@
 package iuh.fit.se.menu.api;
 
+import iuh.fit.se.menu.api.dto.MenuItemResponse;
 import iuh.fit.se.menu.api.dto.manager.CreateMenuItemRequest;
 import iuh.fit.se.menu.api.dto.manager.CookTimeSuggestionResponse;
 import iuh.fit.se.menu.api.dto.manager.GenerateComboSuggestionsRequest;
@@ -12,6 +13,8 @@ import iuh.fit.se.menu.api.dto.manager.UpsertRecipeRequest;
 import iuh.fit.se.menu.application.MenuService;
 import iuh.fit.se.ai.client.dto.ComboGenerateResponse;
 import iuh.fit.se.shared.response.ApiResponse;
+import iuh.fit.se.shared.security.JwtPrincipal;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import jakarta.validation.Valid;
 import java.util.List;
 import java.util.Map;
@@ -38,6 +41,11 @@ public class ManagerMenuItemController {
 
     public ManagerMenuItemController(MenuService menuService) {
         this.menuService = menuService;
+    }
+
+    @GetMapping
+    public ResponseEntity<ApiResponse<List<MenuItemResponse>>> list(@RequestParam(value = "categoryId", required = true) Long categoryId) {
+        return ResponseEntity.ok(ApiResponse.ok(menuService.getAllItemsByCategoryForManager(categoryId)));
     }
 
     @PutMapping("/{id}/image")
@@ -139,5 +147,16 @@ public class ManagerMenuItemController {
         }
         menuService.updateCookTime(id, newCookTime);
         return ResponseEntity.ok(ApiResponse.ok("Cook time updated", null));
+    }
+
+    /** Bật lại 1 món đã bị bếp đánh dấu "hết món" thủ công. */
+    @PostMapping("/{id}/mark-available")
+    public ResponseEntity<ApiResponse<MenuItemManagerDetailResponse>> markAvailable(
+            @PathVariable("id") Long id,
+            @AuthenticationPrincipal JwtPrincipal principal
+    ) {
+        Long staffId = principal == null ? null : principal.getStaffId();
+        MenuItemManagerDetailResponse result = menuService.markMenuItemAvailable(id, staffId);
+        return ResponseEntity.ok(ApiResponse.ok("Menu item marked available", result));
     }
 }

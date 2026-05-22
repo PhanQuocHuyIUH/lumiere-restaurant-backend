@@ -124,6 +124,14 @@ public class Refund {
         this.completedAt = Instant.now();
     }
 
+    public boolean isPending() {
+        return this.status == RefundStatus.PENDING;
+    }
+
+    public boolean isSuccess() {
+        return this.status == RefundStatus.SUCCESS;
+    }
+
     private void validateTransition(RefundStatus to) {
         Set<RefundStatus> allowed;
         if (this.status == RefundStatus.INITIATED) {

@@ -1,9 +1,15 @@
 package iuh.fit.se.table.api;
 
+import iuh.fit.se.billing.api.dto.BillSummaryResponse;
+import iuh.fit.se.billing.api.dto.PaymentRequestResponse;
+import iuh.fit.se.billing.application.BillingService;
+import iuh.fit.se.billing.application.PaymentRequestService;
+import iuh.fit.se.billing.domain.PaymentRequestMethod;
 import iuh.fit.se.menu.api.dto.CustomerMenuCategoryResponse;
 import iuh.fit.se.menu.api.dto.CustomerTrendingResponse;
 import iuh.fit.se.menu.application.MenuService;
 import iuh.fit.se.ordering.api.dto.OrderResponse;
+import iuh.fit.se.shared.exception.DomainException;
 import iuh.fit.se.table.api.dto.QrInitResponse;
 import iuh.fit.se.table.api.dto.TableQrCodeResponse;
 import iuh.fit.se.table.api.dto.TableResponse;
@@ -14,10 +20,12 @@ import iuh.fit.se.table.application.TableService;
 import iuh.fit.se.shared.response.ApiResponse;
 import jakarta.validation.Valid;
 import java.util.List;
+import java.util.Map;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
@@ -30,10 +38,19 @@ public class TableController {
 
     private final TableService tableService;
     private final MenuService menuService;
+    private final BillingService billingService;
+    private final PaymentRequestService paymentRequestService;
 
-    public TableController(TableService tableService, MenuService menuService) {
+    public TableController(
+            TableService tableService,
+            MenuService menuService,
+            BillingService billingService,
+            PaymentRequestService paymentRequestService
+    ) {
         this.tableService = tableService;
         this.menuService = menuService;
+        this.billingService = billingService;
+        this.paymentRequestService = paymentRequestService;
     }
 
     @GetMapping
@@ -82,6 +99,53 @@ public class TableController {
         TableData table = tableService.getTableByQrKey(qrKey);
         tableService.validateQrSession(qrSessionId, table.tableCode());
         return ResponseEntity.ok(ApiResponse.ok(menuService.getTrending()));
+    }
+
+
+    @GetMapping("/qr/{qrKey}/bill-summary")
+    public ResponseEntity<ApiResponse<BillSummaryResponse>> getBillSummary(
+            @PathVariable("qrKey") String qrKey,
+            @RequestHeader("X-QR-Session") String qrSessionId
+    ) {
+        TableData table = tableService.getTableByQrKey(qrKey);
+        tableService.validateQrSession(qrSessionId, table.tableCode());
+        return ResponseEntity.ok(ApiResponse.ok(billingService.getBillSummaryForTable(table.tableCode())));
+    }
+
+    @GetMapping("/qr/{qrKey}/payment-request")
+    public ResponseEntity<ApiResponse<PaymentRequestResponse>> getCurrentPaymentRequest(
+            @PathVariable("qrKey") String qrKey,
+            @RequestHeader("X-QR-Session") String qrSessionId
+    ) {
+        TableData table = tableService.getTableByQrKey(qrKey);
+        tableService.validateQrSession(qrSessionId, table.tableCode());
+        return ResponseEntity.ok(ApiResponse.ok(
+                paymentRequestService.findActiveByTableCode(table.tableCode()).orElse(null)));
+    }
+
+    @PostMapping("/qr/{qrKey}/payment-request")
+    public ResponseEntity<ApiResponse<PaymentRequestResponse>> createPaymentRequest(
+            @PathVariable("qrKey") String qrKey,
+            @RequestHeader("X-QR-Session") String qrSessionId,
+            @RequestBody Map<String, String> body
+    ) {
+        TableData table = tableService.getTableByQrKey(qrKey);
+        tableService.validateQrSession(qrSessionId, table.tableCode());
+
+        String raw = body == null ? null : body.get("preferredMethod");
+        if (raw == null || raw.isBlank()) {
+            throw new DomainException("preferredMethod là bắt buộc (CASH hoặc TRANSFER)");
+        }
+        PaymentRequestMethod method;
+        try {
+            method = PaymentRequestMethod.valueOf(raw.trim().toUpperCase());
+        } catch (IllegalArgumentException ex) {
+            throw new DomainException("preferredMethod không hợp lệ: " + raw);
+        }
+
+        PaymentRequestResponse created = paymentRequestService
+                .requestForTable(table.tableCode(), qrSessionId, method);
+        return ResponseEntity.ok(ApiResponse.ok("Yêu cầu thanh toán đã được gửi", created));
     }
 
     @GetMapping("/{tableCode}/qr-code")

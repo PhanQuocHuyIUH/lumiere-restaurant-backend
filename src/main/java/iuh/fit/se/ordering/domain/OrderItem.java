@@ -210,6 +210,9 @@ public class OrderItem {
         if (this.subtotal != null) {
             return BigDecimal.valueOf(this.subtotal.toLong());
         }
+        if (this.unitPrice == null || this.quantity == null) {
+            return BigDecimal.ZERO;
+        }
         return BigDecimal.valueOf(this.unitPrice.toLong()).multiply(BigDecimal.valueOf(this.quantity));
     }
 }

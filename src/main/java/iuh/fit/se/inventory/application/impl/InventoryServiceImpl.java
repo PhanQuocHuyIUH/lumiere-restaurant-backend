@@ -14,11 +14,14 @@ import iuh.fit.se.inventory.domain.StockTransaction;
 import iuh.fit.se.inventory.domain.StockTxnType;
 import iuh.fit.se.inventory.repository.IngredientRepository;
 import iuh.fit.se.inventory.repository.StockTransactionRepository;
+import iuh.fit.se.menu.application.MenuService;
 import iuh.fit.se.shared.exception.ResourceNotFoundException;
 import java.math.BigDecimal;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -33,15 +36,18 @@ public class InventoryServiceImpl implements InventoryService {
     private final IngredientRepository ingredientRepository;
     private final StockTransactionRepository stockTransactionRepository;
     private final SimpMessagingTemplate messagingTemplate;
+    private final MenuService menuService;
 
     public InventoryServiceImpl(
             IngredientRepository ingredientRepository,
             StockTransactionRepository stockTransactionRepository,
-            SimpMessagingTemplate messagingTemplate
+            SimpMessagingTemplate messagingTemplate,
+            @Autowired @Lazy MenuService menuService
     ) {
         this.ingredientRepository = ingredientRepository;
         this.stockTransactionRepository = stockTransactionRepository;
         this.messagingTemplate = messagingTemplate;
+        this.menuService = menuService;
     }
 
     @Override
@@ -114,6 +120,7 @@ public class InventoryServiceImpl implements InventoryService {
         stockTransactionRepository.save(txn);
 
         checkAndNotifyLowStock(saved);
+        publishMenuAvailabilityDelta(saved, "INGREDIENT_IMPORTED");
         return IngredientResponse.from(saved);
     }
 
@@ -144,6 +151,10 @@ public class InventoryServiceImpl implements InventoryService {
         stockTransactionRepository.save(txn);
 
         checkAndNotifyLowStock(saved);
+        String trigger = txnType == StockTxnType.MANUAL_REPORT
+                ? "INGREDIENT_MANUAL_REPORT"
+                : "INGREDIENT_ADJUSTED";
+        publishMenuAvailabilityDelta(saved, trigger);
         return IngredientResponse.from(saved);
     }
 
@@ -193,6 +204,17 @@ public class InventoryServiceImpl implements InventoryService {
             } catch (Exception ex) {
                 LOGGER.warn("Failed to send low-stock alert for ingredient {}", ingredient.getId(), ex);
             }
+        }
+    }
+
+    /** Delegate to menu module — it knows which menu items reference this ingredient
+     *  and computes ingredientSufficient via checkIngredientAvailability. */
+    private void publishMenuAvailabilityDelta(Ingredient ingredient, String trigger) {
+        try {
+            menuService.publishAvailabilityDeltaForIngredient(
+                    ingredient.getId(), ingredient.getName(), trigger);
+        } catch (Exception ex) {
+            LOGGER.warn("Failed to publish availability delta for ingredient {}", ingredient.getId(), ex);
         }
     }
 

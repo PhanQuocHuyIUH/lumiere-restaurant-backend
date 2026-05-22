@@ -52,8 +52,21 @@ public class PaymentIdempotencyService {
             String operation,
             Supplier<PaymentResponse> action
     ) {
+        return executeIdempotent(idempotencyKey, operation, action, PaymentResponse.class);
+    }
+
+    /**
+     * Generic variant — used by refund flow that returns RefundResponse.
+     * Behaves identically to the PaymentResponse overload but caches a typed JSON.
+     */
+    public <T> T executeIdempotent(
+            String idempotencyKey,
+            String operation,
+            Supplier<T> action,
+            Class<T> responseType
+    ) {
         String redisKey = REDIS_KEY_PREFIX + idempotencyKey;
-        
+
         try {
             // Try to mark this request as PENDING using SETNX (set if not exists)
             String pendingMarker = operation + ":PENDING:" + System.currentTimeMillis();
@@ -76,7 +89,7 @@ public class PaymentIdempotencyService {
                         // Request was previously successful - return cached response
                         String cachedJson = existingStr.substring((operation + ":SUCCESS:").length());
                         try {
-                            return objectMapper.readValue(cachedJson, PaymentResponse.class);
+                            return objectMapper.readValue(cachedJson, responseType);
                         } catch (Exception e) {
                             log.warn("Failed to deserialize cached response for key {}", idempotencyKey, e);
                             // Fall through to retry
@@ -87,7 +100,7 @@ public class PaymentIdempotencyService {
             }
 
             // Execute the operation
-            PaymentResponse response = action.get();
+            T response = action.get();
 
             // Cache the successful response
             try {

@@ -25,6 +25,7 @@ import iuh.fit.se.menu.api.dto.manager.UpdateMenuItemRequest;
 import iuh.fit.se.menu.api.dto.manager.UpsertFixedComboRequest;
 import iuh.fit.se.menu.api.dto.manager.UpsertPickComboRequest;
 import iuh.fit.se.menu.api.dto.manager.UpsertRecipeRequest;
+import iuh.fit.se.menu.application.AvailabilityUpdate;
 import iuh.fit.se.menu.application.MenuItemAvailability;
 import iuh.fit.se.menu.application.MenuItemData;
 import iuh.fit.se.menu.application.MenuItemPricingData;
@@ -74,6 +75,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.core.task.TaskExecutor;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -99,6 +101,7 @@ public class MenuServiceImpl implements MenuService {
     private final KitchenService kitchenService;
     private final AnalyticsService analyticsService;
     private final StringRedisTemplate stringRedisTemplate;
+    private final SimpMessagingTemplate messagingTemplate;
 
     public MenuServiceImpl(
             MenuCategoryRepository menuCategoryRepository,
@@ -113,7 +116,8 @@ public class MenuServiceImpl implements MenuService {
             @Qualifier("aiTaskExecutor") TaskExecutor aiTaskExecutor,
             @Lazy KitchenService kitchenService,
             AnalyticsService analyticsService,
-            StringRedisTemplate stringRedisTemplate
+            StringRedisTemplate stringRedisTemplate,
+            SimpMessagingTemplate messagingTemplate
     ) {
         this.menuCategoryRepository = menuCategoryRepository;
         this.menuItemRepository = menuItemRepository;
@@ -128,6 +132,7 @@ public class MenuServiceImpl implements MenuService {
         this.kitchenService = kitchenService;
         this.analyticsService = analyticsService;
         this.stringRedisTemplate = stringRedisTemplate;
+        this.messagingTemplate = messagingTemplate;
     }
 
     @Override
@@ -140,7 +145,7 @@ public class MenuServiceImpl implements MenuService {
                 .collect(Collectors.groupingBy(
                         MenuItem::getCategoryId,
                         LinkedHashMap::new,
-                        Collectors.mapping(MenuItemResponse::from, Collectors.toList())
+                        Collectors.mapping(item -> MenuItemResponse.from(item, checkIngredientAvailability(item.getId(), 1).sufficient()), Collectors.toList())
                 ));
 
         return categories.stream()
@@ -284,7 +289,17 @@ public class MenuServiceImpl implements MenuService {
                 .findAllByCategoryIdAndDeletedAtIsNullOrderByIdAsc(categoryId)
                 .stream()
                 .filter(MenuItem::isAvailable)
-                .map(MenuItemResponse::from)
+                .map(item -> MenuItemResponse.from(item, checkIngredientAvailability(item.getId(), 1).sufficient()))
+                .toList();
+    }
+
+    @Override
+    public List<MenuItemResponse> getAllItemsByCategoryForManager(Long categoryId) {
+        getActiveCategory(categoryId);
+        return menuItemRepository
+                .findAllByCategoryIdAndDeletedAtIsNullOrderByIdAsc(categoryId)
+                .stream()
+                .map(item -> MenuItemResponse.from(item, checkIngredientAvailability(item.getId(), 1).sufficient()))
                 .toList();
     }
 
@@ -871,6 +886,93 @@ public class MenuServiceImpl implements MenuService {
             return MenuItemAvailability.available(menuItemId);
         }
         return MenuItemAvailability.insufficient(menuItemId, shortages);
+    }
+
+    @Override
+    @Transactional
+    @CacheEvict(value = {"menu", "trending"}, allEntries = true)
+    public MenuItemManagerDetailResponse markMenuItemUnavailable(Long menuItemId, String reason, Long staffId) {
+        MenuItem item = getActiveMenuItem(menuItemId);
+        if (!item.isAvailable()) {
+            // Idempotent — still emit event so clients can refresh if they missed the previous one.
+            publishMenuAvailabilityEvent("MENU_ITEM_MARKED_UNAVAILABLE", null, null,
+                    List.of(new AvailabilityUpdate(item.getId(), false, false)));
+            return buildManagerDetail(item);
+        }
+        item.markUnavailable();
+        MenuItem saved = menuItemRepository.save(item);
+        LOGGER.info("Menu item {} marked UNAVAILABLE by staff {} (reason={})", menuItemId, staffId, reason);
+
+        publishMenuAvailabilityEvent("MENU_ITEM_MARKED_UNAVAILABLE", null, null,
+                List.of(new AvailabilityUpdate(saved.getId(), false,
+                        checkIngredientAvailability(saved.getId(), 1).sufficient())));
+        return buildManagerDetail(saved);
+    }
+
+    @Override
+    @Transactional
+    @CacheEvict(value = {"menu", "trending"}, allEntries = true)
+    public MenuItemManagerDetailResponse markMenuItemAvailable(Long menuItemId, Long staffId) {
+        MenuItem item = getActiveMenuItem(menuItemId);
+        if (item.isAvailable()) {
+            return buildManagerDetail(item);
+        }
+        item.markAvailable();
+        MenuItem saved = menuItemRepository.save(item);
+        LOGGER.info("Menu item {} marked AVAILABLE by staff {}", menuItemId, staffId);
+
+        boolean sufficient = checkIngredientAvailability(saved.getId(), 1).sufficient();
+        publishMenuAvailabilityEvent("MENU_ITEM_MARKED_AVAILABLE", null, null,
+                List.of(new AvailabilityUpdate(saved.getId(), true, sufficient)));
+        return buildManagerDetail(saved);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<MenuItemAvailability> recomputeAvailabilityForIngredient(Long ingredientId) {
+        List<MenuItemIngredient> recipes = menuItemIngredientRepository.findAllByIngredientId(ingredientId);
+        if (recipes.isEmpty()) return List.of();
+        return recipes.stream()
+                .map(r -> checkIngredientAvailability(r.getMenuItemId(), 1))
+                .toList();
+    }
+
+    private void publishMenuAvailabilityEvent(
+            String trigger,
+            Long ingredientId,
+            String ingredientName,
+            List<AvailabilityUpdate> updates
+    ) {
+        if (updates == null || updates.isEmpty()) return;
+        try {
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("trigger", trigger);
+            payload.put("ingredientId", ingredientId);
+            payload.put("ingredientName", ingredientName);
+            payload.put("updates", updates);
+            payload.put("timestamp", Instant.now().toString());
+            messagingTemplate.convertAndSend("/topic/menu/availability", payload);
+        } catch (Exception ex) {
+            LOGGER.warn("Failed to publish menu availability event ({}): {}", trigger, ex.getMessage());
+        }
+    }
+
+    /** Called by InventoryServiceImpl after a stock change so the menu module owns the STOMP publish. */
+    @Override
+    @Transactional(readOnly = true)
+    public void publishAvailabilityDeltaForIngredient(Long ingredientId, String ingredientName, String trigger) {
+        List<MenuItemIngredient> recipes = menuItemIngredientRepository.findAllByIngredientId(ingredientId);
+        if (recipes.isEmpty()) return;
+        List<AvailabilityUpdate> updates = recipes.stream()
+                .map(r -> {
+                    MenuItem item = menuItemRepository.findById(r.getMenuItemId()).orElse(null);
+                    if (item == null || item.getDeletedAt() != null) return null;
+                    boolean sufficient = checkIngredientAvailability(item.getId(), 1).sufficient();
+                    return new AvailabilityUpdate(item.getId(), item.isAvailable(), sufficient);
+                })
+                .filter(java.util.Objects::nonNull)
+                .toList();
+        publishMenuAvailabilityEvent(trigger, ingredientId, ingredientName, updates);
     }
 
     // ========================== Cook Time Suggestion ==========================

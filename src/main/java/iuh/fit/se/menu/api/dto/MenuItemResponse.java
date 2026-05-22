@@ -6,11 +6,15 @@ import iuh.fit.se.menu.domain.MenuItem;
 import iuh.fit.se.menu.domain.MenuItemType;
 import java.math.BigDecimal;
 import java.time.Instant;
+import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
+import lombok.NoArgsConstructor;
 
 @Getter
 @Builder
+@NoArgsConstructor
+@AllArgsConstructor
 public class MenuItemResponse {
 
     private Long id;
@@ -21,6 +25,7 @@ public class MenuItemResponse {
     private Integer cookTime;
     private String imageUrl;
     private boolean available;
+    private boolean ingredientSufficient;
 
     private Instant createdAt;
     private Instant updatedAt;
@@ -28,6 +33,10 @@ public class MenuItemResponse {
     private ComboKind comboKind;
 
     public static MenuItemResponse from(MenuItem menuItem) {
+        return from(menuItem, true);
+    }
+
+    public static MenuItemResponse from(MenuItem menuItem, boolean ingredientSufficient) {
         return MenuItemResponse.builder()
                 .id(menuItem.getId())
                 .categoryId(menuItem.getCategoryId())
@@ -37,7 +46,7 @@ public class MenuItemResponse {
                 .cookTime(menuItem.getCookTime())
                 .imageUrl(menuItem.getImageUrl())
                 .available(menuItem.isAvailable())
-
+                .ingredientSufficient(ingredientSufficient)
                 .createdAt(menuItem.getCreatedAt())
                 .updatedAt(menuItem.getUpdatedAt())
                 .itemType(menuItem.getItemType())
@@ -52,6 +61,7 @@ public class MenuItemResponse {
             .price(menuItem.price() == null ? BigDecimal.ZERO : menuItem.price())
                 .imageUrl(menuItem.imageUrl())
                 .available(menuItem.available())
+                .ingredientSufficient(menuItem.ingredientSufficient())
                 .itemType(menuItem.itemType())
                 .comboKind(menuItem.comboKind())
                 .build();

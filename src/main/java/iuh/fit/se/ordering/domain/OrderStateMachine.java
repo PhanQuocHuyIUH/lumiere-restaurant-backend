@@ -11,7 +11,10 @@ public final class OrderStateMachine {
             OrderStatus.CONFIRMED, Set.of(OrderStatus.PREPARING, OrderStatus.CANCELLED),
             OrderStatus.PREPARING, Set.of(OrderStatus.READY),
             OrderStatus.READY, Set.of(OrderStatus.SERVED),
-            OrderStatus.SERVED, Set.of(OrderStatus.PAID, OrderStatus.CONFIRMED)
+            OrderStatus.SERVED, Set.of(OrderStatus.PAID, OrderStatus.CONFIRMED),
+            // Allow PAID → CANCELLED so a full refund can cancel a paid order
+            // (reason carries the REFUND_FULL prefix; see BillingOrderEventListener).
+            OrderStatus.PAID, Set.of(OrderStatus.CANCELLED)
     );
 
     private OrderStateMachine() {

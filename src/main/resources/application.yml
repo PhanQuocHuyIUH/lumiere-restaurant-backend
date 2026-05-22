@@ -80,9 +80,9 @@ server:
   forward-headers-strategy: framework
   address: 0.0.0.0
   tomcat:
-      threads:
-        max: 100 
-      accept-count: 200
+    threads:
+      max: 100
+    accept-count: 200
 logging:
   level:
     iuh.fit.se: DEBUG
@@ -101,6 +101,17 @@ app:
       ipn-url: ${VNPAY_IPN_URL}
       command: ${VNPAY_COMMAND}
       version: ${VNPAY_VERSION}
+    vietqr:
+      # NAPAS BIN of the receiving bank (e.g. 970422 = MB Bank, 970436 = Vietcombank, 970403 = Sacombank)
+      bank-bin: ${VIETQR_BANK_BIN}
+      # Bank account number that customers will transfer to
+      account-number: ${VIETQR_ACCOUNT_NUMBER}
+      # Account holder name (ASCII, ≤25 chars — diacritics auto-stripped)
+      account-name: ${VIETQR_ACCOUNT_NAME}
+      # Merchant city for display on QR (ASCII, ≤15 chars)
+      merchant-city: ${VIETQR_MERCHANT_CITY}
+      # How long the displayed QR remains valid before frontend treats it as expired
+      qr-expiry-minutes: ${VIETQR_QR_EXPIRY_MINUTES:30}
   storage:
     cloudinary:
       cloud-name: ${CLOUDINARY_CLOUD_NAME}
@@ -116,7 +127,7 @@ ai:
   base-url: ${AI_BASE_URL:http://localhost:8001}
   service-key: ${AI_SERVICE_KEY:}
   timeout-ms:
-    # Timeout (ms) cho từng AI operation. Gemini API thường response 3-8s → chatbot cần buffer cao.
+    # Timeout (ms) cho từng AI operation.
     sync-menu: ${AI_TIMEOUT_SYNC_MENU_MS:5000}
     recommend: ${AI_TIMEOUT_RECOMMEND_MS:5000}
     chatbot: ${AI_TIMEOUT_CHATBOT_MS:25000}

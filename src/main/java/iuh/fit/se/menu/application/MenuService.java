@@ -38,6 +38,8 @@ public interface MenuService {
 
     List<MenuItemResponse> getAvailableItemsByCategory(Long categoryId);
 
+    List<MenuItemResponse> getAllItemsByCategoryForManager(Long categoryId);
+
     MenuItemData getItem(Long id);
 
     ComboDetailResponse getComboDetail(Long id);
@@ -80,6 +82,21 @@ public interface MenuService {
     ComboGenerateResponse generateComboSuggestions(ComboGenerateRequest request);
 
     MenuItemAvailability checkIngredientAvailability(Long menuItemId, int quantity);
+
+    /** Kitchen/Manager toggle a menu item off (e.g. món bị cháy/hỏng, không liên quan tới NL).
+     *  Publishes a delta event so waiter & customer apps refresh availability without refetching. */
+    MenuItemManagerDetailResponse markMenuItemUnavailable(Long menuItemId, String reason, Long staffId);
+
+    /** Manager-only — bật lại món đã bị markUnavailable thủ công. */
+    MenuItemManagerDetailResponse markMenuItemAvailable(Long menuItemId, Long staffId);
+
+    /** Trả về list menuItemIds bị ảnh hưởng (sufficient flag thay đổi) sau khi một ingredient
+     *  được điều chỉnh / nhập kho. Inventory module gọi để publish delta event. */
+    List<MenuItemAvailability> recomputeAvailabilityForIngredient(Long ingredientId);
+
+    /** Inventory module gọi sau khi adjust/import stock để menu module phát delta lên
+     *  /topic/menu/availability — giữ STOMP publish ở chung 1 chỗ. */
+    void publishAvailabilityDeltaForIngredient(Long ingredientId, String ingredientName, String trigger);
 
     CookTimeSuggestionResponse getSuggestedCookTime(Long menuItemId);
 

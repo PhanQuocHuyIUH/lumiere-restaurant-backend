@@ -12,6 +12,7 @@ public record MenuItemData(
         BigDecimal price,
         String imageUrl,
         boolean available,
+        boolean ingredientSufficient,
         MenuItemType itemType,
         ComboKind comboKind,
         TaxMode itemTaxMode,
@@ -20,12 +21,17 @@ public record MenuItemData(
 ) {
 
     public static MenuItemData from(MenuItem menuItem) {
+        return from(menuItem, true);
+    }
+
+    public static MenuItemData from(MenuItem menuItem, boolean ingredientSufficient) {
         return new MenuItemData(
                 menuItem.getId(),
                 menuItem.getName(),
                 menuItem.getPrice() == null ? BigDecimal.ZERO : menuItem.getPrice().toBigDecimal(),
                 menuItem.getImageUrl(),
                 menuItem.isAvailable(),
+                ingredientSufficient,
                 menuItem.getItemType(),
                 menuItem.getComboKind(),
                 menuItem.getItemTaxMode(),

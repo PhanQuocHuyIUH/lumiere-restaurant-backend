@@ -3,7 +3,13 @@ package iuh.fit.se.billing.application.impl;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import iuh.fit.se.billing.api.dto.CreatePaymentRequest;
 import iuh.fit.se.billing.api.dto.PaymentResponse;
+import iuh.fit.se.billing.api.dto.BillSummaryResponse;
+import iuh.fit.se.billing.api.dto.PaymentRequestResponse;
 import iuh.fit.se.billing.api.dto.RefundRequest;
+import iuh.fit.se.billing.api.dto.RefundResponse;
+import iuh.fit.se.billing.application.PaymentRequestService;
+import iuh.fit.se.table.application.TableData;
+import iuh.fit.se.table.application.TableService;
 import iuh.fit.se.billing.application.BillingService;
 import iuh.fit.se.billing.application.BillingWebhookResult;
 import iuh.fit.se.billing.application.dto.ShiftPaymentSummary;
@@ -18,6 +24,7 @@ import iuh.fit.se.billing.domain.Refund;
 import iuh.fit.se.billing.domain.TxnStatus;
 import iuh.fit.se.billing.domain.TxnType;
 import iuh.fit.se.billing.domain.PaymentWebhook;
+import iuh.fit.se.billing.domain.VietQrCodec;
 import iuh.fit.se.billing.domain.VnpayMessageMapper;
 import iuh.fit.se.billing.repository.PaymentRepository;
 import iuh.fit.se.billing.repository.PaymentTransactionRepository;
@@ -30,9 +37,11 @@ import iuh.fit.se.billing.api.dto.InvoiceItem;
 import iuh.fit.se.ordering.application.OrderingService;
 import iuh.fit.se.shared.event.PaymentFailedEvent;
 import iuh.fit.se.shared.event.PaymentSuccessEvent;
+import iuh.fit.se.identity.application.StaffService;
 import iuh.fit.se.shared.exception.DomainException;
 import iuh.fit.se.shared.exception.ResourceNotFoundException;
 import iuh.fit.se.shared.security.JwtPrincipal;
+import iuh.fit.se.shared.settings.repository.SystemSettingRepository;
 import iuh.fit.se.shared.util.IdempotencyUtil;
 import iuh.fit.se.shift.application.ShiftService;
 import java.math.BigDecimal;
@@ -63,6 +72,7 @@ import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.security.authentication.InsufficientAuthenticationException;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -104,9 +114,14 @@ public class BillingServiceImpl implements BillingService {
     private final OrderingService orderingService;
     private final WebhookService webhookService;
     private final ShiftService shiftService;
+    private final StaffService staffService;
+    private final SystemSettingRepository systemSettingRepository;
     private final ApplicationEventPublisher eventPublisher;
     private final ObjectMapper objectMapper;
     private final RestClient restClient;
+    private final TableService tableService;
+    private final PaymentRequestService paymentRequestService;
+    private final SimpMessagingTemplate messagingTemplate;
 
     @Value("${app.payment.vnpay.endpoint:}")
     private String vnpayEndpoint;
@@ -132,6 +147,21 @@ public class BillingServiceImpl implements BillingService {
     @Value("${app.payment.vnpay.version:2.1.0}")
     private String vnpayVersion;
 
+    @Value("${app.payment.vietqr.bank-bin:}")
+    private String vietqrBankBin;
+
+    @Value("${app.payment.vietqr.account-number:}")
+    private String vietqrAccountNumber;
+
+    @Value("${app.payment.vietqr.account-name:}")
+    private String vietqrAccountName;
+
+    @Value("${app.payment.vietqr.merchant-city:}")
+    private String vietqrMerchantCity;
+
+    @Value("${app.payment.vietqr.qr-expiry-minutes:30}")
+    private int vietqrQrExpiryMinutes;
+
     public BillingServiceImpl(
             PaymentRepository paymentRepository,
             iuh.fit.se.menu.application.MenuService menuService,
@@ -142,8 +172,13 @@ public class BillingServiceImpl implements BillingService {
             OrderingService orderingService,
             WebhookService webhookService,
             @Autowired @org.springframework.context.annotation.Lazy ShiftService shiftService,
+            StaffService staffService,
+            SystemSettingRepository systemSettingRepository,
             ApplicationEventPublisher eventPublisher,
-            ObjectMapper objectMapper
+            ObjectMapper objectMapper,
+            TableService tableService,
+            PaymentRequestService paymentRequestService,
+            SimpMessagingTemplate messagingTemplate
     ) {
         this.paymentRepository = paymentRepository;
         this.menuService = menuService;
@@ -154,8 +189,13 @@ public class BillingServiceImpl implements BillingService {
         this.orderingService = orderingService;
         this.webhookService = webhookService;
         this.shiftService = shiftService;
+        this.staffService = staffService;
+        this.systemSettingRepository = systemSettingRepository;
         this.eventPublisher = eventPublisher;
         this.objectMapper = objectMapper;
+        this.tableService = tableService;
+        this.paymentRequestService = paymentRequestService;
+        this.messagingTemplate = messagingTemplate;
         this.restClient = RestClient.builder().build();
     }
 
@@ -209,22 +249,32 @@ public class BillingServiceImpl implements BillingService {
                 return new InvoiceItem(name, qty, unitPrice, subtotalLine);
             }).toList();
 
-            BigDecimal subtotal = order.subtotalAmount() != null ? order.subtotalAmount() : BigDecimal.ZERO;
-            BigDecimal tax = order.taxAmount() != null ? order.taxAmount() : BigDecimal.ZERO;
+            BigDecimal subtotal = (order.subtotalAmount() != null) ? order.subtotalAmount() : BigDecimal.ZERO;
+            BigDecimal tax = (order.taxAmount() != null) ? order.taxAmount() : BigDecimal.ZERO;
             BigDecimal discount = BigDecimal.ZERO;
-            BigDecimal total = order.totalAmount() != null ? order.totalAmount() : subtotal.add(tax);
+            BigDecimal total = (order.totalAmount() != null) ? order.totalAmount() : subtotal.add(tax);
 
             String paymentMethod = paymentOpt
                     .map(p -> p.getPaymentMethod() == null ? "" : p.getPaymentMethod().name())
                     .orElse("");
             Instant paymentTime = paymentOpt.map(Payment::getPaidAt).orElse(order.paidAt());
             Long cashierId = paymentOpt.map(Payment::getCashierId).orElse(order.confirmedById());
+            String cashierName = resolveCashierName(cashierId);
 
-            String invoiceNumber = String.format("INV-%d-%d", orderId, System.currentTimeMillis());
+            // Stable invoice number: prefer paymentId so reprints always match.
+            // Fall back to orderId-only marker for unpaid drafts so the receipt label is still readable.
+            String invoiceNumber = paymentOpt
+                    .map(p -> String.format("INV-%d-%d", orderId, p.getId()))
+                    .orElseGet(() -> String.format("INV-%d-DRAFT", orderId));
+
+            String restaurantName = systemSettingRepository.findValueByKey("restaurant.name").orElse("");
+            String restaurantAddress = systemSettingRepository.findValueByKey("restaurant.address").orElse("");
+            String restaurantHotline = systemSettingRepository.findValueByKey("restaurant.hotline").orElse("");
 
             return new InvoiceResponse(
                     orderId, invoiceNumber, items, subtotal, tax, discount, total,
-                    paymentMethod, paymentTime, cashierId
+                    paymentMethod, paymentTime, cashierId, cashierName,
+                    restaurantName, restaurantAddress, restaurantHotline
             );
         } catch (DomainException ex) {
             // Re-throw domain errors (incl. ResourceNotFoundException) so they map to proper 4xx
@@ -351,13 +401,255 @@ public class BillingServiceImpl implements BillingService {
     }
 
     @Override
-    public PaymentResponse createRefund(Long paymentId, RefundRequest request, String idempotencyKey) {
+    @Transactional(readOnly = true)
+    public BillSummaryResponse getBillSummaryForTable(String tableCode) {
+        TableData table = tableService.getTableByCode(tableCode);
+        // Use the non-throwing variant: when there's no active order, catching
+        // ResourceNotFoundException would still mark the surrounding tx
+        // rollback-only and the eventual commit would fail with
+        // UnexpectedRollbackException. Optional avoids that entirely.
+        OrderResponse currentOrder = tableService.findCurrentOrderByTableCode(tableCode)
+                .orElse(null);
+        if (currentOrder == null) {
+            return emptyBillSummary(tableCode);
+        }
+
+        Long orderId = currentOrder.id();
+        try {
+            boolean served = currentOrder.status() == iuh.fit.se.ordering.domain.OrderStatus.SERVED;
+            String reason = served ? null
+                    : "Đơn hàng chưa được phục vụ xong (trạng thái: " + currentOrder.status() + ")";
+
+            InvoiceResponse invoice = getInvoiceForOrder(orderId);
+            PaymentRequestResponse activeRequest = paymentRequestService
+                    .findActiveByOrderId(orderId)
+                    .orElse(null);
+
+            return new BillSummaryResponse(
+                    orderId,
+                    table.tableCode(),
+                    (currentOrder.status() != null) ? currentOrder.status().name() : null,
+                    served && activeRequest == null,
+                    reason,
+                    invoice.items(),
+                    invoice.subtotal(),
+                    invoice.tax(),
+                    invoice.total(),
+                    activeRequest
+            );
+        } catch (DomainException ex) {
+            // 4xx domain errors propagate untouched
+            throw ex;
+        } catch (Exception ex) {
+            // Anything else (NPE, JPA, mapping…) — log with full stack and surface as 400 so the
+            // customer screen shows a readable message instead of a bare "Internal server error".
+            LOGGER.error("getBillSummaryForTable failed for table={} orderId={}", tableCode, orderId, ex);
+            throw new DomainException(
+                    "Không tải được hoá đơn (order " + orderId + "): " + ex.getMessage()
+            );
+        }
+    }
+
+    private BillSummaryResponse emptyBillSummary(String tableCode) {
+        return new BillSummaryResponse(
+                null, tableCode, null,
+                false, "Bạn chưa gọi món, không thể yêu cầu thanh toán",
+                List.of(), BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
+                null
+        );
+    }
+
+    @Override
+    public RefundResponse createRefund(Long paymentId, RefundRequest request, String idempotencyKey) {
         String normalizedKey = IdempotencyUtil.normalizeKey(idempotencyKey);
         return paymentIdempotencyService.executeIdempotent(
             normalizedKey,
             OP_CREATE_REFUND,
-            () -> createRefundInternal(paymentId, request)
+            () -> createRefundInternal(paymentId, request),
+            RefundResponse.class
         );
+    }
+
+    @Override
+    public RefundResponse confirmRefund(Long refundId) {
+        Refund refund = refundRepository.findById(refundId)
+                .orElseThrow(() -> new ResourceNotFoundException("Refund", refundId));
+        if (!refund.isPending()) {
+            throw new DomainException("Only PENDING refunds can be confirmed (current status: " + refund.getStatus() + ")");
+        }
+
+        Payment payment = paymentRepository.findById(refund.getPaymentId())
+                .orElseThrow(() -> new ResourceNotFoundException("Payment", refund.getPaymentId()));
+
+        Map<String, Object> responsePayload = new LinkedHashMap<>();
+        responsePayload.put("provider", payment.getProvider().name());
+        responsePayload.put("confirmedBy", resolveStaffIdForCashier());
+        responsePayload.put("confirmedAt", Instant.now().toString());
+        responsePayload.put("note", payment.getProvider() == PaymentProvider.CASH
+                ? "Cash refund handed to customer"
+                : "Manual bank transfer completed");
+
+        String providerRefundId = payment.getProvider().name() + "-MANUAL-" + refund.getId();
+        refund.markSuccess(providerRefundId, responsePayload);
+        refundRepository.save(refund);
+
+        applyRefundSuccessToPayment(payment, refund);
+        return RefundResponse.from(refund, resolveCashierName(refund.getRequestedBy()));
+    }
+
+    @Override
+    public RefundResponse cancelPendingRefund(Long refundId, String reason) {
+        Refund refund = refundRepository.findById(refundId)
+                .orElseThrow(() -> new ResourceNotFoundException("Refund", refundId));
+        if (!refund.isPending()) {
+            throw new DomainException("Only PENDING refunds can be cancelled (current status: " + refund.getStatus() + ")");
+        }
+
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("cancelledAt", Instant.now().toString());
+        payload.put("cancelledReason", firstNonBlank(reason, "CANCELLED_BY_CASHIER"));
+        payload.put("cancelledBy", resolveStaffIdForCashier());
+        refund.markFailed(payload);
+        refundRepository.save(refund);
+        return RefundResponse.from(refund, resolveCashierName(refund.getRequestedBy()));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<RefundResponse> listRefundsForPayment(Long paymentId) {
+        return refundRepository.findAllByPaymentIdOrderByCreatedAtDesc(paymentId).stream()
+                .map(r -> RefundResponse.from(r, resolveCashierName(r.getRequestedBy())))
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<RefundResponse> listRefundsForOrder(Long orderId) {
+        List<Payment> payments = paymentRepository.findAllByOrderIdOrderByCreatedAtDesc(orderId);
+        if (payments.isEmpty()) return List.of();
+        return payments.stream()
+                .flatMap(p -> refundRepository.findAllByPaymentIdOrderByCreatedAtDesc(p.getId()).stream())
+                .map(r -> RefundResponse.from(r, resolveCashierName(r.getRequestedBy())))
+                .toList();
+    }
+
+    @Override
+    public PaymentResponse confirmManualPayment(Long paymentId) {
+        Payment payment = paymentRepository.findById(paymentId)
+                .orElseThrow(() -> new ResourceNotFoundException("Payment", paymentId));
+
+        PaymentProvider provider = payment.getProvider();
+        if (provider != PaymentProvider.VIETQR && provider != PaymentProvider.CASH) {
+            throw new DomainException("Manual confirmation is only supported for VIETQR or CASH provider");
+        }
+        if (!payment.isPending()) {
+            throw new DomainException("Payment is not pending. Current status: " + payment.getStatus());
+        }
+        validateShiftForPayment(payment.getShiftId());
+
+        Long cashierId = resolveStaffIdForCashier();
+        String providerTxnPrefix = provider == PaymentProvider.CASH ? "CASH-MANUAL-" : "VIETQR-MANUAL-";
+        String providerTxnId = providerTxnPrefix + payment.getId();
+
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("provider", provider.name());
+        payload.put("confirmation", "MANUAL");
+        payload.put("confirmedBy", cashierId);
+        payload.put("confirmedAt", Instant.now().toString());
+        if (payment.getProviderPayload() != null) {
+            payload.put("originalPayload", payment.getProviderPayload());
+        }
+
+        payment.markSuccess(providerTxnId, "00", payload);
+        payment = paymentRepository.save(payment);
+
+        BigDecimal amount = payment.getAmount() == null ? BigDecimal.ZERO : payment.getAmount().toBigDecimal();
+        PaymentTransaction transaction = PaymentTransaction.initiated(
+                payment.getId(),
+                payment.getProvider(),
+                TxnType.QUERY,
+                amount,
+                payload
+        );
+        transaction.markSuccess(providerTxnId, HttpStatus.OK.value(), 0, payload);
+        paymentTransactionRepository.save(transaction);
+
+        eventPublisher.publishEvent(new PaymentSuccessEvent(
+                payment.getId(),
+                payment.getOrderId(),
+                payment.getSubtotalAmount() == null ? BigDecimal.ZERO : payment.getSubtotalAmount().toBigDecimal(),
+                payment.getTaxAmount() == null ? BigDecimal.ZERO : payment.getTaxAmount().toBigDecimal(),
+                amount
+        ));
+
+        return PaymentResponse.from(payment);
+    }
+
+    @Override
+    public PaymentResponse cancelPendingPayment(Long paymentId, String reason) {
+        Payment payment = paymentRepository.findById(paymentId)
+                .orElseThrow(() -> new ResourceNotFoundException("Payment", paymentId));
+        if (!payment.isPending()) {
+            throw new DomainException("Only PENDING payments can be cancelled. Current status: " + payment.getStatus());
+        }
+
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("cancelled", true);
+        payload.put("cancelledAt", Instant.now().toString());
+        payload.put("cancelledReason", firstNonBlank(reason, "CANCELLED_BY_CASHIER"));
+        if (payment.getProviderPayload() != null) {
+            payload.put("originalPayload", payment.getProviderPayload());
+        }
+
+        payment.markFailed("CANCELLED", payload);
+        payment = paymentRepository.save(payment);
+
+        BigDecimal amount = payment.getAmount() == null ? BigDecimal.ZERO : payment.getAmount().toBigDecimal();
+        PaymentTransaction transaction = PaymentTransaction.initiated(
+                payment.getId(),
+                payment.getProvider(),
+                TxnType.QUERY,
+                amount,
+                payload
+        );
+        transaction.markFailed(HttpStatus.OK.value(), 0, payload);
+        paymentTransactionRepository.save(transaction);
+
+        eventPublisher.publishEvent(new PaymentFailedEvent(payment.getId(), payment.getOrderId(),
+                "Cancelled: " + firstNonBlank(reason, "CANCELLED_BY_CASHIER")));
+
+        return PaymentResponse.from(payment);
+    }
+
+    /**
+     * Mark every still-PENDING payment for an order as FAILED with reason=SUPERSEDED.
+     * Called inside createPaymentInternal so the cashier can freely switch payment methods
+     * without piling up stale PENDING records.
+     */
+    private void supersedePendingPaymentsForOrder(Long orderId) {
+        List<Payment> stale = paymentRepository.findAllByOrderIdAndStatus(orderId, PaymentStatus.PENDING);
+        if (stale.isEmpty()) return;
+        for (Payment p : stale) {
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("cancelled", true);
+            payload.put("cancelledAt", Instant.now().toString());
+            payload.put("cancelledReason", "SUPERSEDED");
+            if (p.getProviderPayload() != null) {
+                payload.put("originalPayload", p.getProviderPayload());
+            }
+            p.markFailed("SUPERSEDED", payload);
+        }
+        paymentRepository.saveAll(stale);
+    }
+
+    private String resolveCashierName(Long cashierId) {
+        if (cashierId == null) return null;
+        try {
+            return staffService.getStaffById(cashierId).getName();
+        } catch (Exception ex) {
+            LOGGER.warn("Failed to resolve cashier name for staffId={}", cashierId, ex);
+            return null;
+        }
     }
 
     @Override
@@ -398,6 +690,11 @@ public class BillingServiceImpl implements BillingService {
         if (paymentRepository.existsByOrderIdAndStatus(order.id(), PaymentStatus.SUCCESS)) {
             throw new DomainException("A successful payment already exists for order: " + order.id());
         }
+
+        // Atomically mark any existing PENDING payments for this order as FAILED
+        // with reason SUPERSEDED so we don't accumulate stale pending records when
+        // the cashier retries with a different method.
+        supersedePendingPaymentsForOrder(order.id());
 
         Long cashierId = resolveStaffIdForCashier();
         Payment payment = Payment.createPending(
@@ -472,10 +769,37 @@ public class BillingServiceImpl implements BillingService {
         }
         paymentTransactionRepository.save(transaction);
 
-        return PaymentResponse.from(payment);
+        PaymentResponse response = PaymentResponse.from(payment);
+        // Broadcast the QR / payment record to waiter app so a server can carry the
+        // phone over to the table for the customer to scan. Failure to broadcast is
+        // non-fatal — the cashier still has the QR on admin.
+        broadcastPaymentToWaiter(payment, order, response);
+        return response;
     }
 
-    private PaymentResponse createRefundInternal(Long paymentId, RefundRequest request) {
+    private void broadcastPaymentToWaiter(Payment payment, OrderResponse order, PaymentResponse response) {
+        try {
+            String tableCode = null;
+            if (order.tableId() != null) {
+                try {
+                    tableCode = tableService.getTableById(order.tableId()).tableCode();
+                } catch (Exception ex) {
+                    LOGGER.warn("Failed to resolve tableCode for order {} during payment broadcast",
+                            order.id(), ex);
+                }
+            }
+            Map<String, Object> envelope = new LinkedHashMap<>();
+            envelope.put("event", "CREATED");
+            envelope.put("tableCode", tableCode);
+            envelope.put("payment", response);
+            messagingTemplate.convertAndSend("/topic/waiter/payments", envelope);
+        } catch (Exception ex) {
+            LOGGER.warn("Failed to broadcast /topic/waiter/payments for payment {}: {}",
+                    payment.getId(), ex.getMessage());
+        }
+    }
+
+    private RefundResponse createRefundInternal(Long paymentId, RefundRequest request) {
         Payment payment = paymentRepository.findById(paymentId)
                 .orElseThrow(() -> new ResourceNotFoundException("Payment", paymentId));
 
@@ -483,8 +807,18 @@ public class BillingServiceImpl implements BillingService {
             throw new DomainException("Only successful payment can be refunded");
         }
 
-        if (request.amount().compareTo(payment.getAmount() == null ? BigDecimal.ZERO : payment.getAmount().toBigDecimal()) > 0) {
-            throw new DomainException("Refund amount cannot exceed payment amount");
+        // Cumulative validation: sum(refund SUCCESS) + new amount <= payment.amount
+        BigDecimal paymentAmount = payment.getAmount() == null ? BigDecimal.ZERO : payment.getAmount().toBigDecimal();
+        BigDecimal alreadyRefunded = refundRepository.sumSuccessAmountByPaymentId(payment.getId());
+        if (alreadyRefunded == null) alreadyRefunded = BigDecimal.ZERO;
+        BigDecimal refundable = paymentAmount.subtract(alreadyRefunded);
+        if (refundable.signum() <= 0) {
+            throw new DomainException("Payment has already been fully refunded");
+        }
+        if (request.amount().compareTo(refundable) > 0) {
+            throw new DomainException("Refund amount " + request.amount()
+                    + " exceeds remaining refundable amount " + refundable
+                    + " (paid " + paymentAmount + ", already refunded " + alreadyRefunded + ")");
         }
 
         Long staffId = resolveStaffIdForCashier();
@@ -513,27 +847,67 @@ public class BillingServiceImpl implements BillingService {
         );
         transaction = paymentTransactionRepository.save(transaction);
 
+        // CASH / VIETQR: stop at PENDING — cashier must confirm via POST /payments/refunds/{id}/confirm
+        // once the cash is handed over / bank transfer is done. This mirrors the CASH payment flow.
+        if (payment.getProvider() == PaymentProvider.CASH || payment.getProvider() == PaymentProvider.VIETQR) {
+            // Transaction stays in INITIATE/PENDING state until confirm; do not mark success here.
+            return RefundResponse.from(refund, resolveCashierName(staffId));
+        }
+
+        // VNPAY: call gateway synchronously.
         RefundGatewayResult result = initiateRefund(payment, refund, request);
         if (result.success()) {
             refund.markSuccess(result.providerRefundId(), result.responsePayload());
-            if (request.amount().compareTo(payment.getAmount() == null ? BigDecimal.ZERO : payment.getAmount().toBigDecimal()) == 0) {
-                payment.markRefunded(result.responsePayload());
-                payment = paymentRepository.save(payment);
-            }
+            refund = refundRepository.save(refund);
             transaction.markSuccess(
                     result.providerRefundId(),
                     result.httpStatusCode(),
                     result.durationMs(),
                     result.responsePayload()
             );
+            paymentTransactionRepository.save(transaction);
+            applyRefundSuccessToPayment(payment, refund);
         } else {
             refund.markFailed(result.responsePayload());
+            refundRepository.save(refund);
             transaction.markFailed(result.httpStatusCode(), result.durationMs(), result.responsePayload());
+            paymentTransactionRepository.save(transaction);
         }
 
-        refundRepository.save(refund);
-        paymentTransactionRepository.save(transaction);
-        return PaymentResponse.from(payment);
+        return RefundResponse.from(refund, resolveCashierName(staffId));
+    }
+
+    /**
+     * Apply the side effects of a refund reaching SUCCESS:
+     *   1. If the cumulative refund total now equals the payment amount → mark payment REFUNDED.
+     *   2. Publish PaymentRefundedEvent so the order listener can cancel the order (for full refund).
+     */
+    private void applyRefundSuccessToPayment(Payment payment, Refund refund) {
+        BigDecimal paymentAmount = payment.getAmount() == null ? BigDecimal.ZERO : payment.getAmount().toBigDecimal();
+        BigDecimal totalRefunded = refundRepository.sumSuccessAmountByPaymentId(payment.getId());
+        if (totalRefunded == null) totalRefunded = BigDecimal.ZERO;
+        boolean fullRefund = totalRefunded.compareTo(paymentAmount) >= 0;
+
+        if (fullRefund && payment.getStatus() != PaymentStatus.REFUNDED) {
+            Map<String, Object> markPayload = new LinkedHashMap<>();
+            markPayload.put("trigger", "REFUND_SUCCESS");
+            markPayload.put("refundId", refund.getId());
+            markPayload.put("totalRefundedAmount", totalRefunded);
+            payment.markRefunded(markPayload);
+            paymentRepository.save(payment);
+        }
+
+        eventPublisher.publishEvent(new iuh.fit.se.shared.event.PaymentRefundedEvent(
+                payment.getId(),
+                payment.getOrderId(),
+                refund.getId(),
+                refund.getAmount() == null ? BigDecimal.ZERO : refund.getAmount().toBigDecimal(),
+                totalRefunded,
+                paymentAmount,
+                fullRefund,
+                refund.getReason(),
+                refund.getRequestedBy()
+        ));
     }
 
     private Payment resolvePaymentForWebhook(PaymentProvider provider, WebhookProcessResult processed) {
@@ -619,11 +993,13 @@ public class BillingServiceImpl implements BillingService {
 
     private GatewayActionResult initiatePayment(Payment payment, CreatePaymentRequest request) {
         return switch (payment.getProvider()) {
+            // CASH stays PENDING until the cashier explicitly confirms via /payments/{id}/confirm.
+            // This prevents auto-SUCCESS when the cashier abandons the screen before collecting cash.
             case CASH -> new GatewayActionResult(
-                    PaymentTransition.SUCCESS,
+                    PaymentTransition.PENDING,
                     "CASH-" + payment.getId(),
                     "00",
-                    "Cash payment accepted",
+                    "Cash payment awaiting cashier confirmation",
                     null,
                     null,
                     null,
@@ -631,10 +1007,10 @@ public class BillingServiceImpl implements BillingService {
                     null,
                     null,
                     null,
-                    Instant.now(),
+                    null,
                     HttpStatus.OK.value(),
                     0,
-                    Map.<String, Object>of("provider", "CASH", "status", "SUCCESS")
+                    Map.<String, Object>of("provider", "CASH", "status", "PENDING")
             );
             case VNPAY -> buildVnpayPayment(payment, request);
             case VIETQR -> buildVietQrPayment(payment);
@@ -703,7 +1079,30 @@ public class BillingServiceImpl implements BillingService {
     }
 
     private GatewayActionResult buildVietQrPayment(Payment payment) {
-        String content = "VIETQR|PAY-" + payment.getId() + "|" + (payment.getAmount() == null ? BigDecimal.ZERO : payment.getAmount().toBigDecimal()).setScale(0, RoundingMode.HALF_UP).toPlainString();
+        requireConfig(vietqrBankBin, "app.payment.vietqr.bank-bin");
+        requireConfig(vietqrAccountNumber, "app.payment.vietqr.account-number");
+
+        BigDecimal amount = payment.getAmount() == null ? BigDecimal.ZERO : payment.getAmount().toBigDecimal();
+        String purpose = "PAY" + payment.getId();
+        String qrContent = VietQrCodec.build(new VietQrCodec.VietQrInput(
+                vietqrBankBin,
+                vietqrAccountNumber,
+                VietQrCodec.SERVICE_TO_ACCOUNT,
+                amount,
+                vietqrAccountName,
+                vietqrMerchantCity,
+                purpose
+        ));
+
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("provider", "VIETQR");
+        payload.put("bankBin", vietqrBankBin);
+        payload.put("accountNumber", vietqrAccountNumber);
+        payload.put("accountName", vietqrAccountName);
+        payload.put("amount", amount.setScale(0, RoundingMode.HALF_UP).toPlainString());
+        payload.put("purpose", purpose);
+        payload.put("qrContent", qrContent);
+
         return new GatewayActionResult(
                 PaymentTransition.PENDING,
                 "VIETQR-" + payment.getId(),
@@ -715,11 +1114,11 @@ public class BillingServiceImpl implements BillingService {
                 null,
                 null,
                 null,
-                content,
-                Instant.now().plus(Duration.ofMinutes(15)),
+                qrContent,
+                Instant.now().plus(Duration.ofMinutes(vietqrQrExpiryMinutes)),
                 HttpStatus.OK.value(),
                 0,
-                Map.of("qrContent", content)
+                payload
         );
     }
 
@@ -736,13 +1135,13 @@ public class BillingServiceImpl implements BillingService {
             );
             case VNPAY -> initiateVnpayRefund(payment, refund, request);
             case VIETQR -> new RefundGatewayResult(
-                    false,
-                    null,
-                    "UNSUPPORTED",
-                    "VIETQR refund is not supported",
-                    HttpStatus.BAD_REQUEST.value(),
+                    true,
+                    "VIETQR-REFUND-" + refund.getId(),
+                    "00",
+                    "VietQR refund recorded (manual bank transfer)",
+                    HttpStatus.OK.value(),
                     0,
-                    Map.of("error", "VIETQR refund is not supported")
+                    Map.of("provider", "VIETQR", "refundStatus", "SUCCESS", "note", "Refund performed via manual bank transfer")
             );
         };
     }

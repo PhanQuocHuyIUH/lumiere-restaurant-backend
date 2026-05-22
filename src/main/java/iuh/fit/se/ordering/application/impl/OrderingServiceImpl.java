@@ -2,6 +2,8 @@ package iuh.fit.se.ordering.application.impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+
+import iuh.fit.se.billing.repository.PaymentRequestRepository;
 import iuh.fit.se.menu.api.dto.manager.MenuItemManagerDetailResponse;
 import iuh.fit.se.menu.application.MenuItemData;
 import iuh.fit.se.menu.application.MenuService;
@@ -89,6 +91,7 @@ public class OrderingServiceImpl implements OrderingService {
     private final ObjectMapper objectMapper;
     private final SimpMessagingTemplate messagingTemplate;
     private final PricingEngine pricingEngine;
+    private final iuh.fit.se.billing.repository.PaymentRequestRepository paymentRequestRepository;
 
     public OrderingServiceImpl(
             OrderRepository orderRepository,
@@ -99,7 +102,8 @@ public class OrderingServiceImpl implements OrderingService {
             ApplicationEventPublisher eventPublisher,
             ObjectMapper objectMapper,
             SimpMessagingTemplate messagingTemplate,
-            PricingEngine pricingEngine
+            PricingEngine pricingEngine,
+            PaymentRequestRepository paymentRequestRepository
     ) {
         this.orderRepository = orderRepository;
         this.orderRevisionRepository = orderRevisionRepository;
@@ -110,6 +114,7 @@ public class OrderingServiceImpl implements OrderingService {
         this.objectMapper = objectMapper;
         this.messagingTemplate = messagingTemplate;
         this.pricingEngine = pricingEngine;
+        this.paymentRequestRepository = paymentRequestRepository;
     }
 
     @Override
@@ -163,6 +168,7 @@ public class OrderingServiceImpl implements OrderingService {
             Order order = getOrderEntity(orderId);
             RevisionActor actor = resolveActorForRevision(qrSessionId, order);
             ensureCanAddRevision(order);
+            ensureNoActivePaymentRequest(orderId);
 
             Map<Long, MenuItemData> menuItems = resolveAvailableMenuItemsForRevision(request.items());
             int nextRevisionNumber = orderRevisionRepository.findTopByOrderIdOrderByRevisionNumberDesc(orderId)
@@ -565,6 +571,7 @@ public class OrderingServiceImpl implements OrderingService {
             RevisionActor actor
     ) {
         ensureCanAddRevision(order);
+        ensureNoActivePaymentRequest(order.getId());
 
         Map<Long, MenuItemData> menuItems = resolveAvailableMenuItems(request.items());
         int nextRevisionNumber = orderRevisionRepository.findTopByOrderIdOrderByRevisionNumberDesc(order.getId())
@@ -947,6 +954,17 @@ public class OrderingServiceImpl implements OrderingService {
     private void ensureCanAddRevision(Order order) {
         if (!REVISION_ALLOWED_STATUSES.contains(order.getStatus())) {
             throw new DomainException("Cannot add revision for order in status: " + order.getStatus());
+        }
+    }
+
+    /**
+     * Guard — once the customer has signalled "yêu cầu thanh toán" the bill is locked.
+     * No new items can be added until the cashier finishes or cancels the request.
+     */
+    private void ensureNoActivePaymentRequest(Long orderId) {
+        if (paymentRequestRepository.findActiveByOrderId(orderId).isPresent()) {
+            throw new DomainException(
+                    "Đơn hàng đang chờ thanh toán — không thể thêm món. Vui lòng huỷ yêu cầu thanh toán nếu muốn gọi thêm.");
         }
     }
 

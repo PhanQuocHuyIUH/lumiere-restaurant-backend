@@ -14,5 +14,9 @@ public record InvoiceResponse(
         BigDecimal total,
         String paymentMethod,
         Instant paymentTime,
-        Long cashierId
+        Long cashierId,
+        String cashierName,
+        String restaurantName,
+        String restaurantAddress,
+        String restaurantHotline
 ) {}

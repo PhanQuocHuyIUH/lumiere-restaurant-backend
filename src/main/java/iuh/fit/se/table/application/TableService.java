@@ -3,6 +3,7 @@ package iuh.fit.se.table.application;
 import iuh.fit.se.ordering.api.dto.OrderResponse;
 import iuh.fit.se.table.domain.TableStatus;
 import java.util.List;
+import java.util.Optional;
 
 public interface TableService {
 
@@ -15,6 +16,13 @@ public interface TableService {
     TableData getTableByQrKey(String qrKey);
 
     OrderResponse getCurrentOrderByTableCode(String tableCode);
+
+    /**
+     * Non-throwing variant — returns Optional.empty() when no active order exists.
+     * Use this in callers that legitimately handle the "no order" case without
+     * needing the rollback semantics of a RuntimeException.
+     */
+    Optional<OrderResponse> findCurrentOrderByTableCode(String tableCode);
 
     QrSessionToken issueQrSession(String tableCode);
 
