@@ -46,6 +46,7 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/auth/login").permitAll()
                         .requestMatchers(HttpMethod.POST, "/auth/logout").permitAll()
                     .requestMatchers(HttpMethod.GET, "/tables/qr/*/init", "/tables/qr/*/menu", "/tables/qr/*/trending").permitAll()
+                    .requestMatchers(HttpMethod.GET, "/menu/items/*/combo").permitAll()
                     .requestMatchers(HttpMethod.GET, "/tables/qr/*/bill-summary", "/tables/qr/*/payment-request").permitAll()
                     .requestMatchers(HttpMethod.POST, "/tables/qr/*/payment-request").permitAll()
                         .requestMatchers(HttpMethod.POST, "/orders", "/orders/*/revisions", "/orders/recommendations", "/chatbot", "/recommendation-logs").permitAll()
