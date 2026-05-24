@@ -535,6 +535,10 @@ public class OrderingServiceImpl implements OrderingService {
             if (!activeChildren.isEmpty()
                     && activeChildren.stream().allMatch(c -> c.getStatus() == OrderItemStatus.SERVED)
                     && item.getStatus() != OrderItemStatus.SERVED) {
+                // Combo parent là wrapper tổng hợp, không đi qua PREPARING/DONE như child.
+                // Đẩy nó qua đủ chuỗi state machine khi toàn bộ child đã SERVED.
+                if (item.getStatus() == OrderItemStatus.PENDING)   item.startPreparing();
+                if (item.getStatus() == OrderItemStatus.PREPARING) item.markDone();
                 item.markServed();
                 synced.add(item);
             }
