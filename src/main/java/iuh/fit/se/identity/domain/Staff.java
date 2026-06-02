@@ -31,6 +31,9 @@ public class Staff {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
 
+    @Column(name = "employee_code", nullable = false, unique = true, length = 20)
+    private String employeeCode;
+
     @Column(name = "name", nullable = false)
     private String name;
 
@@ -85,6 +88,14 @@ public class Staff {
 
     public void changePasswordHash(String passwordHash) {
         this.passwordHash = passwordHash;
+    }
+
+    public void assignEmployeeCode(String employeeCode) {
+        this.employeeCode = employeeCode;
+    }
+
+    public static String formatEmployeeCode(long id) {
+        return String.format("EMP%04d", id);
     }
 
     public void activate() {

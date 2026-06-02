@@ -7,6 +7,8 @@ import iuh.fit.se.identity.application.AuthService;
 import iuh.fit.se.identity.domain.Staff;
 import iuh.fit.se.identity.domain.StaffStatus;
 import iuh.fit.se.identity.repository.StaffRepository;
+import iuh.fit.se.shared.exception.DomainException;
+import iuh.fit.se.shared.exception.ResourceNotFoundException;
 import iuh.fit.se.shared.security.JwtService;
 import iuh.fit.se.shared.security.StaffUserDetails;
 import org.springframework.beans.factory.annotation.Value;
@@ -87,5 +89,23 @@ public class AuthServiceImpl implements AuthService {
         } else {
             LOGGER.info("Logout requested - token length {}", token.length());
         }
+    }
+
+    @Override
+    @Transactional
+    public void changePassword(Long staffId, String currentPassword, String newPassword) {
+        Staff staff = staffRepository.findByIdAndDeletedAtIsNull(staffId)
+                .orElseThrow(() -> new ResourceNotFoundException("Staff", staffId));
+
+        if (!passwordEncoder.matches(currentPassword, staff.getPasswordHash())) {
+            throw new BadCredentialsException("Mật khẩu hiện tại không đúng");
+        }
+        if (passwordEncoder.matches(newPassword, staff.getPasswordHash())) {
+            throw new DomainException("Mật khẩu mới phải khác mật khẩu hiện tại");
+        }
+
+        staff.changePasswordHash(passwordEncoder.encode(newPassword));
+        staffRepository.save(staff);
+        LOGGER.info("Password changed for staffId={}", staffId);
     }
 }

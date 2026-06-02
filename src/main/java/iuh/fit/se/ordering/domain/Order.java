@@ -40,6 +40,9 @@ public class Order {
     @Column(name = "table_id", nullable = false)
     private Long tableId;
 
+    @Column(name = "table_group_id")
+    private Long tableGroupId;
+
     @Enumerated(EnumType.STRING)
     @JdbcTypeCode(SqlTypes.NAMED_ENUM)
     @Column(name = "status", columnDefinition = "order_status_enum", nullable = false)
@@ -233,5 +236,23 @@ public class Order {
         OrderStateMachine.validate(this.status, OrderStatus.CANCELLED);
         this.status = OrderStatus.CANCELLED;
         this.cancelledAt = Instant.now();
+    }
+
+    public void transferToTable(Long newTableId) {
+        if (newTableId == null) {
+            throw new IllegalArgumentException("newTableId must not be null");
+        }
+        if (this.status == OrderStatus.PAID || this.status == OrderStatus.CANCELLED) {
+            throw new IllegalStateException("Cannot transfer a completed order");
+        }
+        this.tableId = newTableId;
+    }
+
+    public void joinTableGroup(Long groupId) {
+        this.tableGroupId = groupId;
+    }
+
+    public void leaveTableGroup() {
+        this.tableGroupId = null;
     }
 }

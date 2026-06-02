@@ -411,7 +411,8 @@ public class KitchenServiceImpl implements KitchenService {
                     snapshot.quantity(),
                     snapshot.note(),
                     event.getOrderNote(),
-                    snapshot.cookTime()
+                    snapshot.cookTime(),
+                    event.getConfirmedAt()
             ));
         }
 
@@ -633,6 +634,25 @@ public class KitchenServiceImpl implements KitchenService {
         kitchenTaskRepository.saveAll(toCancel);
         messagingTemplate.convertAndSend("/topic/kitchen/tasks/cancelled",
                 toCancel.stream().map(KitchenTask::getId).toList());
+    }
+
+    @Override
+    public int reassignTableForOrder(Long orderId, Long newTableId) {
+        if (orderId == null || newTableId == null) return 0;
+        List<KitchenTask> active = kitchenTaskRepository.findAllByOrderIdAndStatusIn(
+                orderId,
+                List.of(KitchenTaskStatus.CREATED, KitchenTaskStatus.COOKING)
+        );
+        if (active.isEmpty()) return 0;
+        active.forEach(t -> t.reassignTable(newTableId));
+        kitchenTaskRepository.saveAll(active);
+        // Broadcast so KDS rebinds the task to the new table card.
+        messagingTemplate.convertAndSend(
+                "/topic/kitchen/tasks/reassigned",
+                Map.of("orderId", orderId, "newTableId", newTableId, "taskIds",
+                        active.stream().map(KitchenTask::getId).toList())
+        );
+        return active.size();
     }
 
 }

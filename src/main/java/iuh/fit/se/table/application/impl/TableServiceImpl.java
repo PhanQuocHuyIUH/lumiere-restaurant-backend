@@ -7,7 +7,9 @@ import com.google.zxing.client.j2se.MatrixToImageWriter;
 import com.google.zxing.common.BitMatrix;
 import com.google.zxing.qrcode.QRCodeWriter;
 import com.google.zxing.qrcode.decoder.ErrorCorrectionLevel;
+import iuh.fit.se.kitchen.application.KitchenService;
 import iuh.fit.se.ordering.api.dto.OrderResponse;
+import iuh.fit.se.ordering.application.OrderingService;
 import iuh.fit.se.ordering.domain.OrderItem;
 import iuh.fit.se.ordering.domain.OrderRevision;
 import iuh.fit.se.ordering.domain.OrderStatus;
@@ -20,8 +22,12 @@ import iuh.fit.se.shared.storage.ImageStorageService;
 import iuh.fit.se.shared.storage.StoredImage;
 import iuh.fit.se.table.application.QrSessionToken;
 import iuh.fit.se.table.application.TableData;
+import iuh.fit.se.table.application.TableGroupData;
 import iuh.fit.se.table.application.TableQrCodeData;
 import iuh.fit.se.table.application.TableService;
+import iuh.fit.se.table.domain.TableGroup;
+import iuh.fit.se.table.domain.TableGroupStatus;
+import iuh.fit.se.table.repository.TableGroupRepository;
 import iuh.fit.se.table.domain.QrSession;
 import iuh.fit.se.table.domain.QrSessionStatus;
 import iuh.fit.se.table.domain.RestaurantTable;
@@ -47,6 +53,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -75,6 +82,9 @@ public class TableServiceImpl implements TableService {
     private final OrderItemRepository orderItemRepository;
     private final ImageStorageService imageStorageService;
     private final QrSessionCacheService qrSessionCacheService;
+    private final OrderingService orderingService;
+    private final KitchenService kitchenService;
+    private final TableGroupRepository tableGroupRepository;
 
     @Value("${app.qr.base-url:http://localhost:8080/tables/qr}")
     private String qrBaseUrl;
@@ -93,7 +103,10 @@ public class TableServiceImpl implements TableService {
             OrderRevisionRepository orderRevisionRepository,
             OrderItemRepository orderItemRepository,
             ImageStorageService imageStorageService,
-            QrSessionCacheService qrSessionCacheService
+            QrSessionCacheService qrSessionCacheService,
+            @Lazy OrderingService orderingService,
+            @Lazy KitchenService kitchenService,
+            TableGroupRepository tableGroupRepository
     ) {
         this.restaurantTableRepository = restaurantTableRepository;
         this.tableQrCodeRepository = tableQrCodeRepository;
@@ -103,6 +116,9 @@ public class TableServiceImpl implements TableService {
         this.orderItemRepository = orderItemRepository;
         this.imageStorageService = imageStorageService;
         this.qrSessionCacheService = qrSessionCacheService;
+        this.orderingService = orderingService;
+        this.kitchenService = kitchenService;
+        this.tableGroupRepository = tableGroupRepository;
     }
 
     @Override
@@ -338,6 +354,142 @@ public class TableServiceImpl implements TableService {
             revokeActiveSessionsForTable(saved.getId());
         }
         return TableData.from(saved);
+    }
+
+    @Override
+    @Transactional
+    @CacheEvict(value = "tables", allEntries = true)
+    public TableData moveTable(String fromCode, String toCode) {
+        if (fromCode == null || toCode == null) {
+            throw new DomainException("fromCode and toCode are required");
+        }
+        RestaurantTable from = getActiveTable(fromCode);
+        RestaurantTable to = getActiveTable(toCode);
+        if (from.getId().equals(to.getId())) {
+            throw new DomainException("Bàn nguồn và bàn đích phải khác nhau");
+        }
+        if (to.getStatus() != TableStatus.AVAILABLE) {
+            throw new DomainException("Bàn đích không sẵn sàng (status=" + to.getStatus() + ")");
+        }
+
+        Optional<Long> movedOrderId = orderingService.transferActiveOrderToTable(from.getId(), to.getId());
+        if (movedOrderId.isEmpty()) {
+            throw new DomainException("Bàn nguồn không có order đang phục vụ để chuyển");
+        }
+
+        kitchenService.reassignTableForOrder(movedOrderId.get(), to.getId());
+
+        // Source becomes available, destination becomes occupied.
+        from.markAvailable();
+        to.occupy();
+        restaurantTableRepository.saveAll(List.of(from, to));
+
+        // Customer's QR session for the source table must die so their phone can't
+        // keep ordering on a now-empty table.
+        revokeActiveSessionsForTable(from.getId());
+
+        LOGGER.info("Moved order {} from table {} to table {}",
+                movedOrderId.get(), from.getTableCode(), to.getTableCode());
+        return TableData.from(to);
+    }
+
+    @Override
+    @Transactional
+    @CacheEvict(value = "tables", allEntries = true)
+    public TableGroupData createTableGroup(String masterCode, List<String> memberCodes, String note) {
+        if (masterCode == null || memberCodes == null || memberCodes.isEmpty()) {
+            throw new DomainException("masterCode và memberCodes là bắt buộc");
+        }
+        RestaurantTable master = getActiveTable(masterCode);
+        List<RestaurantTable> members = new java.util.ArrayList<>();
+        members.add(master);
+        for (String code : memberCodes) {
+            RestaurantTable t = getActiveTable(code);
+            if (!t.getId().equals(master.getId())) {
+                members.add(t);
+            }
+        }
+        if (members.size() < 2) {
+            throw new DomainException("Gộp bàn cần ít nhất 2 bàn khác nhau");
+        }
+        // Reject if any member is already in an OPEN group.
+        for (RestaurantTable t : members) {
+            tableGroupRepository.findActiveGroupForTable(t.getId(), TableGroupStatus.OPEN)
+                    .ifPresent(g -> {
+                        throw new DomainException("Bàn " + t.getTableCode() + " đã thuộc nhóm đang mở (id=" + g.getId() + ")");
+                    });
+        }
+
+        TableGroup group = TableGroup.builder()
+                .masterTableId(master.getId())
+                .status(TableGroupStatus.OPEN)
+                .note(note)
+                .build();
+        TableGroup saved = tableGroupRepository.save(group);
+        for (RestaurantTable t : members) {
+            saved.addMember(t.getId());
+            if (t.getStatus() == TableStatus.AVAILABLE) {
+                t.occupy();
+            }
+        }
+        restaurantTableRepository.saveAll(members);
+        saved = tableGroupRepository.save(saved);
+
+        LOGGER.info("Created table group {} master={} members={}",
+                saved.getId(), master.getTableCode(),
+                members.stream().map(RestaurantTable::getTableCode).toList());
+        return TableGroupData.from(saved);
+    }
+
+    @Override
+    @Transactional
+    @CacheEvict(value = "tables", allEntries = true)
+    public TableGroupData closeTableGroup(Long groupId) {
+        TableGroup group = tableGroupRepository.findById(groupId)
+                .orElseThrow(() -> new ResourceNotFoundException("TableGroup", groupId));
+        if (!group.isOpen()) {
+            throw new DomainException("Nhóm bàn đã đóng");
+        }
+
+        // Sanity check: there should be no UNPAID orders left under this group.
+        List<iuh.fit.se.ordering.domain.Order> linked = orderRepository.findAllByTableGroupId(groupId);
+        boolean hasUnpaid = linked.stream().anyMatch(o ->
+                o.getStatus() != OrderStatus.PAID && o.getStatus() != OrderStatus.CANCELLED);
+        if (hasUnpaid) {
+            throw new DomainException("Còn order chưa thanh toán trong nhóm bàn — không thể đóng");
+        }
+
+        group.close();
+        tableGroupRepository.save(group);
+
+        List<Long> memberIds = group.getMembers().stream().map(m -> m.getTableId()).toList();
+        List<RestaurantTable> members = restaurantTableRepository.findAllById(memberIds);
+        for (RestaurantTable t : members) {
+            if (t.getStatus() == TableStatus.OCCUPIED) {
+                try {
+                    t.markCleaning();
+                } catch (Exception ex) {
+                    LOGGER.warn("Cannot transition table {} to CLEANING: {}", t.getTableCode(), ex.getMessage());
+                }
+            }
+            revokeActiveSessionsForTable(t.getId());
+        }
+        restaurantTableRepository.saveAll(members);
+
+        LOGGER.info("Closed table group {}", groupId);
+        return TableGroupData.from(group);
+    }
+
+    @Override
+    public Optional<TableGroupData> findActiveGroupForTable(Long tableId) {
+        return tableGroupRepository.findActiveGroupForTable(tableId, TableGroupStatus.OPEN)
+                .map(TableGroupData::from);
+    }
+
+    @Override
+    public List<TableGroupData> getOpenTableGroups() {
+        return tableGroupRepository.findAllByStatus(TableGroupStatus.OPEN)
+                .stream().map(TableGroupData::from).toList();
     }
 
     /**

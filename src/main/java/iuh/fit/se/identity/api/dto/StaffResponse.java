@@ -12,6 +12,7 @@ import lombok.Getter;
 public class StaffResponse {
 
     private Long id;
+    private String employeeCode;
     private String name;
     private String username;
     private StaffRole role;
@@ -22,6 +23,7 @@ public class StaffResponse {
     public static StaffResponse from(Staff staff) {
         return StaffResponse.builder()
                 .id(staff.getId())
+                .employeeCode(staff.getEmployeeCode())
                 .name(staff.getName())
                 .username(staff.getUsername())
                 .role(staff.getRole())

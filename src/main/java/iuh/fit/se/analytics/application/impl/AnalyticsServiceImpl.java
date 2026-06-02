@@ -4,12 +4,14 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import iuh.fit.se.analytics.api.GroupBy;
 import iuh.fit.se.analytics.api.dto.AnalyticsSummaryResponse;
+import iuh.fit.se.analytics.api.dto.KitchenSlaStatsResponse;
 import iuh.fit.se.analytics.api.dto.RevenueDetailResponse;
 import iuh.fit.se.analytics.api.dto.RevenuePeriodEntry;
 import iuh.fit.se.analytics.api.dto.TopMenuItemEntry;
 import iuh.fit.se.analytics.application.AnalyticsService;
 import iuh.fit.se.analytics.domain.OrderEvent;
 import iuh.fit.se.analytics.repository.OrderEventRepository;
+import iuh.fit.se.kitchen.repository.KitchenTaskRepository;
 import iuh.fit.se.ai.AiClient;
 import iuh.fit.se.ai.AiOperation;
 import iuh.fit.se.ai.client.dto.ForecastRequest;
@@ -51,11 +53,18 @@ public class AnalyticsServiceImpl implements AnalyticsService {
     private static final ZoneId DATABASE_ZONE = ZoneOffset.UTC;
 
     private final OrderEventRepository orderEventRepository;
+    private final KitchenTaskRepository kitchenTaskRepository;
     private final AiClient aiClient;
     private final ObjectMapper objectMapper;
 
-    public AnalyticsServiceImpl(OrderEventRepository orderEventRepository, AiClient aiClient, ObjectMapper objectMapper) {
+    public AnalyticsServiceImpl(
+            OrderEventRepository orderEventRepository,
+            KitchenTaskRepository kitchenTaskRepository,
+            AiClient aiClient,
+            ObjectMapper objectMapper
+    ) {
         this.orderEventRepository = orderEventRepository;
+        this.kitchenTaskRepository = kitchenTaskRepository;
         this.aiClient = aiClient;
         this.objectMapper = objectMapper;
     }
@@ -356,6 +365,32 @@ public class AnalyticsServiceImpl implements AnalyticsService {
                         OrderEventRepository.ItemOrderCountProjection::getMenuItemId,
                         OrderEventRepository.ItemOrderCountProjection::getOrderCount
                 ));
+    }
+
+    @Override
+    public KitchenSlaStatsResponse getKitchenSlaStats(LocalDate fromDate, LocalDate toDate) {
+        LocalDate from = fromDate != null ? fromDate : LocalDate.now(DATABASE_ZONE).minusDays(7);
+        LocalDate to = toDate != null ? toDate : LocalDate.now(DATABASE_ZONE);
+        if (from.isAfter(to)) {
+            throw new DomainException("fromDate must be before or equal to toDate");
+        }
+
+        Instant fromTime = from.atStartOfDay(DATABASE_ZONE).toInstant();
+        Instant toTime = to.plusDays(1).atStartOfDay(DATABASE_ZONE).toInstant();
+
+        KitchenTaskRepository.KitchenSlaStatsProjection p = kitchenTaskRepository.aggregateSlaStats(fromTime, toTime);
+        if (p == null) {
+            return new KitchenSlaStatsResponse(0, 0, 0.0, 0.0, 0L, 0L);
+        }
+
+        long total = p.getTotalTasks() != null ? p.getTotalTasks() : 0L;
+        long breached = p.getBreachedTasks() != null ? p.getBreachedTasks() : 0L;
+        double avgWait = p.getAvgWaitSeconds() != null ? p.getAvgWaitSeconds() : 0.0;
+        long p95Wait = p.getP95WaitSeconds() != null ? p.getP95WaitSeconds().longValue() : 0L;
+        long maxWait = p.getMaxWaitSeconds() != null ? p.getMaxWaitSeconds().longValue() : 0L;
+        double breachRate = total > 0 ? (double) breached / (double) total : 0.0;
+
+        return new KitchenSlaStatsResponse(total, breached, breachRate, avgWait, p95Wait, maxWait);
     }
 
     private record EventActor(Long actorId, String actorType) {

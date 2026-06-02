@@ -62,6 +62,9 @@ public class KitchenTask {
     @Column(name = "expected_cook_time")
     private Integer expectedCookTime;
 
+    @Column(name = "ordered_at", nullable = false)
+    private Instant orderedAt;
+
     @Enumerated(EnumType.STRING)
     @JdbcType(PostgreSQLEnumJdbcType.class)
     @Column(name = "status", columnDefinition = "kitchen_task_status_enum", nullable = false)
@@ -89,6 +92,9 @@ public class KitchenTask {
         if (this.createdAt == null) {
             this.createdAt = Instant.now();
         }
+        if (this.orderedAt == null) {
+            this.orderedAt = this.createdAt;
+        }
     }
 
     public static KitchenTask create(Long orderItemId) {
@@ -108,7 +114,8 @@ public class KitchenTask {
             Integer quantity,
             String orderItemNote,
             String orderNote,
-            Integer expectedCookTime
+            Integer expectedCookTime,
+            Instant orderedAt
     ) {
         return KitchenTask.builder()
                 .orderId(orderId)
@@ -121,6 +128,7 @@ public class KitchenTask {
                 .orderItemNote(orderItemNote)
                 .orderNote(orderNote)
                 .expectedCookTime(expectedCookTime)
+                .orderedAt(orderedAt)
                 .status(KitchenTaskStatus.CREATED)
                 .build();
     }
@@ -141,5 +149,9 @@ public class KitchenTask {
         KitchenTaskStateMachine.validate(this.status, KitchenTaskStatus.CANCELLED);
         this.status = KitchenTaskStatus.CANCELLED;
         this.completedAt = Instant.now();
+    }
+
+    public void reassignTable(Long newTableId) {
+        this.tableId = newTableId;
     }
 }

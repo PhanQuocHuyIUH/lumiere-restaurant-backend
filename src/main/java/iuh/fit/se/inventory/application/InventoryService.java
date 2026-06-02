@@ -2,6 +2,7 @@ package iuh.fit.se.inventory.application;
 
 import iuh.fit.se.inventory.api.dto.AdjustStockRequest;
 import iuh.fit.se.inventory.api.dto.CreateIngredientRequest;
+import iuh.fit.se.inventory.api.dto.ExpiringLotResponse;
 import iuh.fit.se.inventory.api.dto.ImportStockRequest;
 import iuh.fit.se.inventory.api.dto.IngredientResponse;
 import iuh.fit.se.inventory.api.dto.StockTransactionResponse;
@@ -35,4 +36,9 @@ public interface InventoryService {
     void validateIngredientExists(Long id);
 
     List<IngredientData> getIngredientsData(List<Long> ids);
+
+    // Expiry tracking
+    List<ExpiringLotResponse> getExpiringLots(int withinDays);
+
+    void wasteLot(Long lotId, Long staffId, String reason);
 }

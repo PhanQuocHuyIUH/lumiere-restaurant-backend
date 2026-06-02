@@ -2,6 +2,7 @@ package iuh.fit.se.analytics.application;
 
 import iuh.fit.se.analytics.api.GroupBy;
 import iuh.fit.se.analytics.api.dto.AnalyticsSummaryResponse;
+import iuh.fit.se.analytics.api.dto.KitchenSlaStatsResponse;
 import iuh.fit.se.analytics.api.dto.RevenueDetailResponse;
 import iuh.fit.se.ai.client.dto.ForecastRequest;
 import iuh.fit.se.ai.client.dto.ForecastResponse;
@@ -22,4 +23,6 @@ public interface AnalyticsService {
 
     // Cross-module query (used by menu module for trending)
     Map<Long, Long> getOrderCountsByItem(Instant from, Instant to);
+
+    KitchenSlaStatsResponse getKitchenSlaStats(LocalDate fromDate, LocalDate toDate);
 }

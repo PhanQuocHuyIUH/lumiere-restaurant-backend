@@ -8,4 +8,6 @@ public interface AuthService {
     LoginResponse login(LoginRequest request);
 
     void logout(String token);
+
+    void changePassword(Long staffId, String currentPassword, String newPassword);
 }

@@ -1,10 +1,12 @@
 package iuh.fit.se.inventory.api;
 
 import iuh.fit.se.inventory.api.dto.CreateIngredientRequest;
+import iuh.fit.se.inventory.api.dto.ExpiringLotResponse;
 import iuh.fit.se.inventory.api.dto.ImportStockRequest;
 import iuh.fit.se.inventory.api.dto.IngredientResponse;
 import iuh.fit.se.inventory.api.dto.StockTransactionResponse;
 import iuh.fit.se.inventory.api.dto.UpdateIngredientRequest;
+import iuh.fit.se.inventory.api.dto.WasteLotRequest;
 import iuh.fit.se.inventory.application.InventoryService;
 import iuh.fit.se.shared.response.ApiResponse;
 import iuh.fit.se.shared.security.JwtPrincipal;
@@ -21,6 +23,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -86,5 +89,22 @@ public class ManagerInventoryController {
             @PathVariable("ingredientId") Long ingredientId
     ) {
         return ResponseEntity.ok(ApiResponse.ok(inventoryService.getStockHistory(ingredientId)));
+    }
+
+    @GetMapping("/expiring")
+    public ResponseEntity<ApiResponse<List<ExpiringLotResponse>>> getExpiring(
+            @RequestParam(value = "days", defaultValue = "3") int days
+    ) {
+        return ResponseEntity.ok(ApiResponse.ok(inventoryService.getExpiringLots(days)));
+    }
+
+    @PostMapping("/lots/{id}/waste")
+    public ResponseEntity<ApiResponse<Void>> wasteLot(
+            @PathVariable("id") Long id,
+            @Valid @RequestBody WasteLotRequest request,
+            @AuthenticationPrincipal JwtPrincipal principal
+    ) {
+        inventoryService.wasteLot(id, principal.getStaffId(), request.reason());
+        return ResponseEntity.ok(ApiResponse.ok("Lot marked as waste", null));
     }
 }

@@ -47,4 +47,26 @@ public interface TableService {
     TableData updateTable(String tableCode, int floor, int tableNo, int capacity);
 
     void deleteTable(String tableCode);
+
+    /**
+     * Move the active order from {@code fromCode} to {@code toCode} (waiter relocates a party).
+     * Cascades: Order.tableId, KitchenTask.tableId, table statuses, revokes from-table QR session.
+     */
+    TableData moveTable(String fromCode, String toCode);
+
+    /**
+     * Create a group joining {@code masterCode} with extra member tables for a large party.
+     * All future orders at any member table will roll up into one bill at the master table.
+     */
+    TableGroupData createTableGroup(String masterCode, List<String> memberCodes, String note);
+
+    /**
+     * Close the group (after payment). Frees all member tables back to AVAILABLE.
+     */
+    TableGroupData closeTableGroup(Long groupId);
+
+    /** Return the group containing this tableId, if any is currently OPEN. */
+    Optional<TableGroupData> findActiveGroupForTable(Long tableId);
+
+    List<TableGroupData> getOpenTableGroups();
 }

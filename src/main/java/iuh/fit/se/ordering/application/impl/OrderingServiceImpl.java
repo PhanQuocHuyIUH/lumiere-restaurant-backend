@@ -40,6 +40,7 @@ import iuh.fit.se.shared.security.JwtPrincipal;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
@@ -132,8 +133,11 @@ public class OrderingServiceImpl implements OrderingService {
 
             Map<Long, MenuItemData> menuItems = resolveAvailableMenuItems(request.items());
 
+            Long autoGroupId = tableService.findActiveGroupForTable(table.id())
+                    .map(g -> g.id()).orElse(null);
             Order order = Order.builder()
                     .tableId(table.id())
+                    .tableGroupId(autoGroupId)
                     .note(normalizeOptionalText(request.note()))
                     .build();
             order = orderRepository.save(order);
@@ -1115,6 +1119,39 @@ public class OrderingServiceImpl implements OrderingService {
         return normalized == null ? "Order cancelled" : normalized;
     }
 
+    @Override
+    public Optional<Long> transferActiveOrderToTable(Long fromTableId, Long toTableId) {
+        if (fromTableId == null || toTableId == null) {
+            throw new DomainException("fromTableId and toTableId are required");
+        }
+        if (fromTableId.equals(toTableId)) {
+            throw new DomainException("Bàn nguồn và bàn đích phải khác nhau");
+        }
+
+        List<OrderStatus> activeStatuses = List.of(
+                OrderStatus.CREATED,
+                OrderStatus.CONFIRMED,
+                OrderStatus.PREPARING,
+                OrderStatus.READY,
+                OrderStatus.SERVED
+        );
+        List<Order> activeAtFrom = orderRepository.findAllByTableIdAndStatusIn(fromTableId, activeStatuses);
+        if (activeAtFrom.isEmpty()) {
+            return Optional.empty();
+        }
+        if (activeAtFrom.size() > 1) {
+            throw new DomainException("Bàn nguồn có nhiều order đang mở, không thể tự động chuyển");
+        }
+        if (orderRepository.existsByTableIdAndStatusIn(toTableId, activeStatuses)) {
+            throw new DomainException("Bàn đích đang phục vụ khách khác, không thể chuyển");
+        }
+
+        Order order = activeAtFrom.get(0);
+        order.transferToTable(toTableId);
+        orderRepository.save(order);
+        return Optional.of(order.getId());
+    }
+
     private OrderConfirmedEvent buildOrderConfirmedEvent(Order order, List<OrderItem> items) {
         List<OrderItem> billableItems = items.stream()
                 .filter(item -> !item.isComboParent() && item.getMenuItemId() != null)
@@ -1145,7 +1182,8 @@ public class OrderingServiceImpl implements OrderingService {
                 .filter(Objects::nonNull)
                 .toList();
 
-        return new OrderConfirmedEvent(order.getId(), order.getTableId(), order.getNote(), snapshots);
+        Instant confirmedAt = order.getConfirmedAt() != null ? order.getConfirmedAt() : Instant.now();
+        return new OrderConfirmedEvent(order.getId(), order.getTableId(), order.getNote(), confirmedAt, snapshots);
     }
 
     private record RevisionActor(RevisionSource source, Long staffId, String qrSessionId) {

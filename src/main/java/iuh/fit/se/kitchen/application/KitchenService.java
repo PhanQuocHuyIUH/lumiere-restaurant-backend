@@ -37,4 +37,7 @@ public interface KitchenService {
     KitchenTaskResponse cancelTask(Long taskId);
 
     void cancelTasksForOrderItems(List<Long> orderItemIds);
+
+    /** Re-assign tableId of all non-terminal kitchen tasks of {@code orderId}. */
+    int reassignTableForOrder(Long orderId, Long newTableId);
 }

@@ -16,6 +16,7 @@ import iuh.fit.se.table.api.dto.TableResponse;
 import iuh.fit.se.table.api.dto.UpdateTableStatusRequest;
 import iuh.fit.se.table.application.QrSessionToken;
 import iuh.fit.se.table.application.TableData;
+import iuh.fit.se.table.application.TableGroupData;
 import iuh.fit.se.table.application.TableService;
 import iuh.fit.se.shared.response.ApiResponse;
 import jakarta.validation.Valid;
@@ -174,5 +175,43 @@ public class TableController {
     ) {
         TableData updated = tableService.updateTableStatus(tableCode, request.status());
         return ResponseEntity.ok(ApiResponse.ok("Table status updated", TableResponse.from(updated)));
+    }
+
+    @PostMapping("/{fromCode}/move-to/{toCode}")
+    @PreAuthorize("hasAnyRole('WAITER', 'MANAGER')")
+    public ResponseEntity<ApiResponse<TableResponse>> moveTable(
+            @PathVariable("fromCode") String fromCode,
+            @PathVariable("toCode") String toCode
+    ) {
+        TableData updated = tableService.moveTable(fromCode, toCode);
+        return ResponseEntity.ok(ApiResponse.ok("Order moved to new table", TableResponse.from(updated)));
+    }
+
+    @PostMapping("/{masterCode}/group")
+    @PreAuthorize("hasAnyRole('WAITER', 'MANAGER')")
+    public ResponseEntity<ApiResponse<TableGroupData>> createGroup(
+            @PathVariable("masterCode") String masterCode,
+            @RequestBody Map<String, Object> body
+    ) {
+        @SuppressWarnings("unchecked")
+        List<String> memberCodes = (List<String>) body.getOrDefault("memberCodes", List.of());
+        String note = (String) body.get("note");
+        TableGroupData group = tableService.createTableGroup(masterCode, memberCodes, note);
+        return ResponseEntity.ok(ApiResponse.ok("Table group created", group));
+    }
+
+    @org.springframework.web.bind.annotation.DeleteMapping("/groups/{groupId}")
+    @PreAuthorize("hasAnyRole('WAITER', 'MANAGER')")
+    public ResponseEntity<ApiResponse<TableGroupData>> closeGroup(
+            @PathVariable("groupId") Long groupId
+    ) {
+        TableGroupData group = tableService.closeTableGroup(groupId);
+        return ResponseEntity.ok(ApiResponse.ok("Table group closed", group));
+    }
+
+    @GetMapping("/groups")
+    @PreAuthorize("hasAnyRole('WAITER', 'MANAGER')")
+    public ResponseEntity<ApiResponse<List<TableGroupData>>> getOpenGroups() {
+        return ResponseEntity.ok(ApiResponse.ok(tableService.getOpenTableGroups()));
     }
 }

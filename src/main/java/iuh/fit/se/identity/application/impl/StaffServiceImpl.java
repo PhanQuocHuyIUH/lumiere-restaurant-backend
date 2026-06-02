@@ -2,6 +2,7 @@ package iuh.fit.se.identity.application.impl;
 
 import iuh.fit.se.identity.api.dto.CreateStaffRequest;
 import iuh.fit.se.identity.api.dto.StaffResponse;
+import iuh.fit.se.identity.api.dto.UpdateStaffRequest;
 import iuh.fit.se.identity.application.StaffService;
 import iuh.fit.se.identity.domain.Staff;
 import iuh.fit.se.identity.domain.StaffStatus;
@@ -33,6 +34,7 @@ public class StaffServiceImpl implements StaffService {
         ensureUsernameUnique(normalizedUsername);
 
         Staff staff = Staff.builder()
+                .employeeCode("PENDING")
                 .name(normalizeName(request.name()))
                 .role(request.role())
                 .username(normalizedUsername)
@@ -45,6 +47,8 @@ public class StaffServiceImpl implements StaffService {
         }
 
         Staff savedStaff = staffRepository.save(staff);
+        savedStaff.assignEmployeeCode(Staff.formatEmployeeCode(savedStaff.getId()));
+        savedStaff = staffRepository.save(savedStaff);
         return StaffResponse.from(savedStaff);
     }
 
@@ -64,7 +68,7 @@ public class StaffServiceImpl implements StaffService {
     }
 
     @Override
-    public StaffResponse updateStaff(Long staffId, CreateStaffRequest request) {
+    public StaffResponse updateStaff(Long staffId, UpdateStaffRequest request) {
         if (staffId.equals(1L) && request.role() != StaffRole.MANAGER) {
             throw new ForbiddenException("Không thể hạ quyền tài khoản quản trị viên gốc của hệ thống");
         }
@@ -77,7 +81,6 @@ public class StaffServiceImpl implements StaffService {
 
         staff.updateProfile(normalizeName(request.name()), request.role());
         staff.changeUsername(normalizedUsername);
-        staff.changePasswordHash(passwordEncoder.encode(request.password()));
         applyStatus(staff, request.status());
 
         Staff updatedStaff = staffRepository.save(staff);
@@ -91,6 +94,13 @@ public class StaffServiceImpl implements StaffService {
         }
         Staff staff = getActiveStaff(staffId);
         staff.softDelete();
+        staffRepository.save(staff);
+    }
+
+    @Override
+    public void resetPassword(Long staffId, String newPassword) {
+        Staff staff = getActiveStaff(staffId);
+        staff.changePasswordHash(passwordEncoder.encode(newPassword));
         staffRepository.save(staff);
     }
 

@@ -39,4 +39,11 @@ public interface OrderingService {
     OrderResponse serveOrderItem(Long orderId, Long orderItemId, Long staffId);
 
     OrderResponse serveAllOrderItems(Long orderId, Long staffId);
+
+    /**
+     * Re-assign the active (non-PAID, non-CANCELLED) order at {@code fromTableId} to {@code toTableId}.
+     * Returns the affected orderId so the caller (TableService) can cascade updates
+     * to dependent modules (Kitchen tasks, etc). Empty when there's no active order to move.
+     */
+    Optional<Long> transferActiveOrderToTable(Long fromTableId, Long toTableId);
 }

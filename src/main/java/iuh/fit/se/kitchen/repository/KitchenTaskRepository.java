@@ -46,4 +46,35 @@ public interface KitchenTaskRepository extends JpaRepository<KitchenTask, Long> 
     Optional<KitchenTask> findByOrderItemId(Long orderItemId);
 
     boolean existsByOrderItemId(Long orderItemId);
+
+    List<KitchenTask> findAllByOrderIdAndStatusIn(Long orderId, Collection<KitchenTaskStatus> statuses);
+
+    /**
+     * Aggregate kitchen SLA stats for DONE tasks in [from, to).
+     * Wait time = completed_at - ordered_at. Breach = wait > expected_cook + 300s buffer.
+     */
+    @Query(value = """
+        select
+            count(*) as totalTasks,
+            count(*) filter (where extract(epoch from (completed_at - ordered_at)) > (coalesce(expected_cook_time, 600) + 300)) as breachedTasks,
+            coalesce(avg(extract(epoch from (completed_at - ordered_at))), 0) as avgWaitSeconds,
+            coalesce(percentile_cont(0.95) within group (order by extract(epoch from (completed_at - ordered_at))), 0) as p95WaitSeconds,
+            coalesce(max(extract(epoch from (completed_at - ordered_at))), 0) as maxWaitSeconds
+        from kitchen.kitchen_tasks
+        where status = 'DONE'
+                            and completed_at is not null
+                            and ordered_at is not null
+                            and completed_at >= :fromTime
+                            and completed_at < :toTime
+        """, nativeQuery = true)
+    KitchenSlaStatsProjection aggregateSlaStats(@Param("fromTime") Instant fromTime, @Param("toTime") Instant toTime);
+
+    interface KitchenSlaStatsProjection {
+        Long getTotalTasks();
+        Long getBreachedTasks();
+        Double getAvgWaitSeconds();
+        Double getP95WaitSeconds();
+        Double getMaxWaitSeconds();
+    }
 }
+

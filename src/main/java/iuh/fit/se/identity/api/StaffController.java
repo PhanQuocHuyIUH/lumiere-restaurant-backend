@@ -1,7 +1,9 @@
 package iuh.fit.se.identity.api;
 
 import iuh.fit.se.identity.api.dto.CreateStaffRequest;
+import iuh.fit.se.identity.api.dto.ResetPasswordRequest;
 import iuh.fit.se.identity.api.dto.StaffResponse;
+import iuh.fit.se.identity.api.dto.UpdateStaffRequest;
 import iuh.fit.se.identity.application.StaffService;
 import iuh.fit.se.shared.response.ApiResponse;
 import jakarta.validation.Valid;
@@ -49,10 +51,19 @@ public class StaffController {
     @PutMapping("/{id}")
     public ResponseEntity<ApiResponse<StaffResponse>> updateStaff(
             @PathVariable("id") Long id,
-            @Valid @RequestBody CreateStaffRequest request
+            @Valid @RequestBody UpdateStaffRequest request
     ) {
         StaffResponse updatedStaff = staffService.updateStaff(id, request);
         return ResponseEntity.ok(ApiResponse.ok("Staff updated successfully", updatedStaff));
+    }
+
+    @PostMapping("/{id}/reset-password")
+    public ResponseEntity<ApiResponse<Void>> resetPassword(
+            @PathVariable("id") Long id,
+            @Valid @RequestBody ResetPasswordRequest request
+    ) {
+        staffService.resetPassword(id, request.newPassword());
+        return ResponseEntity.ok(ApiResponse.ok("Password reset successfully", null));
     }
 
     @DeleteMapping("/{id}")

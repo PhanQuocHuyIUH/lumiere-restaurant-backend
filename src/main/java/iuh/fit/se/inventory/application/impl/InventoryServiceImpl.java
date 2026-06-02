@@ -2,6 +2,7 @@ package iuh.fit.se.inventory.application.impl;
 
 import iuh.fit.se.inventory.api.dto.AdjustStockRequest;
 import iuh.fit.se.inventory.api.dto.CreateIngredientRequest;
+import iuh.fit.se.inventory.api.dto.ExpiringLotResponse;
 import iuh.fit.se.inventory.api.dto.ImportStockRequest;
 import iuh.fit.se.inventory.api.dto.IngredientResponse;
 import iuh.fit.se.inventory.api.dto.LowStockAlert;
@@ -10,14 +11,21 @@ import iuh.fit.se.inventory.api.dto.UpdateIngredientRequest;
 import iuh.fit.se.inventory.application.IngredientData;
 import iuh.fit.se.inventory.application.InventoryService;
 import iuh.fit.se.inventory.domain.Ingredient;
+import iuh.fit.se.inventory.domain.StockLot;
 import iuh.fit.se.inventory.domain.StockTransaction;
 import iuh.fit.se.inventory.domain.StockTxnType;
 import iuh.fit.se.inventory.repository.IngredientRepository;
+import iuh.fit.se.inventory.repository.StockLotRepository;
 import iuh.fit.se.inventory.repository.StockTransactionRepository;
 import iuh.fit.se.menu.application.MenuService;
+import iuh.fit.se.shared.exception.DomainException;
 import iuh.fit.se.shared.exception.ResourceNotFoundException;
 import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -35,17 +43,20 @@ public class InventoryServiceImpl implements InventoryService {
 
     private final IngredientRepository ingredientRepository;
     private final StockTransactionRepository stockTransactionRepository;
+    private final StockLotRepository stockLotRepository;
     private final SimpMessagingTemplate messagingTemplate;
     private final MenuService menuService;
 
     public InventoryServiceImpl(
             IngredientRepository ingredientRepository,
             StockTransactionRepository stockTransactionRepository,
+            StockLotRepository stockLotRepository,
             SimpMessagingTemplate messagingTemplate,
             @Autowired @Lazy MenuService menuService
     ) {
         this.ingredientRepository = ingredientRepository;
         this.stockTransactionRepository = stockTransactionRepository;
+        this.stockLotRepository = stockLotRepository;
         this.messagingTemplate = messagingTemplate;
         this.menuService = menuService;
     }
@@ -107,6 +118,15 @@ public class InventoryServiceImpl implements InventoryService {
 
         ingredient.importStock(request.quantity());
         Ingredient saved = ingredientRepository.save(ingredient);
+
+        // Track this import as a discrete lot so FEFO consumption + expiry alerts work.
+        StockLot lot = StockLot.importLot(
+                ingredient.getId(),
+                request.quantity(),
+                request.expiryDate(),
+                request.note()
+        );
+        stockLotRepository.save(lot);
 
         StockTransaction txn = StockTransaction.record(
                 ingredient.getId(),
@@ -187,6 +207,57 @@ public class InventoryServiceImpl implements InventoryService {
                 .filter(i -> i.getDeletedAt() == null)
                 .map(i -> new IngredientData(i.getId(), i.getName(), i.getUnit(), i.getCurrentQty()))
                 .toList();
+    }
+
+    @Override
+    public List<ExpiringLotResponse> getExpiringLots(int withinDays) {
+        LocalDate cutoff = LocalDate.now(ZoneOffset.UTC).plusDays(Math.max(0, withinDays));
+        List<StockLot> lots = stockLotRepository.findExpiringBefore(cutoff);
+        if (lots.isEmpty()) {
+            return List.of();
+        }
+        List<Long> ingredientIds = lots.stream().map(StockLot::getIngredientId).distinct().toList();
+        Map<Long, String> nameById = ingredientRepository.findAllById(ingredientIds).stream()
+                .collect(Collectors.toMap(Ingredient::getId, Ingredient::getName, (a, b) -> a));
+        return lots.stream()
+                .map(lot -> ExpiringLotResponse.from(lot, nameById.getOrDefault(lot.getIngredientId(), "Unknown")))
+                .toList();
+    }
+
+    @Override
+    @Transactional
+    @CacheEvict(value = "menu", allEntries = true)
+    public void wasteLot(Long lotId, Long staffId, String reason) {
+        StockLot lot = stockLotRepository.findByIdAndDeletedAtIsNull(lotId)
+                .orElseThrow(() -> new ResourceNotFoundException("StockLot", lotId));
+        if (lot.isDepleted()) {
+            throw new DomainException("Lô đã hết — không cần đánh dấu hỏng");
+        }
+
+        Ingredient ingredient = getActiveIngredient(lot.getIngredientId());
+        BigDecimal quantityBefore = ingredient.getCurrentQty();
+        BigDecimal wasted = lot.getRemainingQty();
+
+        lot.wasteAll();
+        stockLotRepository.save(lot);
+
+        BigDecimal newQty = quantityBefore.subtract(wasted).max(BigDecimal.ZERO);
+        ingredient.adjust(newQty);
+        Ingredient saved = ingredientRepository.save(ingredient);
+
+        StockTransaction txn = StockTransaction.record(
+                ingredient.getId(),
+                StockTxnType.WASTE_EXPIRED,
+                quantityBefore,
+                wasted.negate(),
+                saved.getCurrentQty(),
+                reason,
+                staffId
+        );
+        stockTransactionRepository.save(txn);
+
+        checkAndNotifyLowStock(saved);
+        publishMenuAvailabilityDelta(saved, "INGREDIENT_WASTED");
     }
 
     private Ingredient getActiveIngredient(Long id) {

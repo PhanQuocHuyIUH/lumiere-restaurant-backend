@@ -2,6 +2,7 @@ package iuh.fit.se.analytics.api;
 
 import iuh.fit.se.analytics.api.dto.AnalyticsSummaryResponse;
 import iuh.fit.se.analytics.api.dto.ForecastTrendRequest;
+import iuh.fit.se.analytics.api.dto.KitchenSlaStatsResponse;
 import iuh.fit.se.analytics.api.dto.RevenueDetailResponse;
 import iuh.fit.se.analytics.application.AnalyticsService;
 import iuh.fit.se.ai.client.dto.ForecastResponse;
@@ -53,5 +54,14 @@ public class AnalyticsController {
     ) {
         ForecastResponse response = analyticsService.forecast(request.toAiRequest());
         return ResponseEntity.ok(ApiResponse.ok("Forecast generated", response));
+    }
+
+    @GetMapping("/kitchen-sla")
+    public ResponseEntity<ApiResponse<KitchenSlaStatsResponse>> getKitchenSlaStats(
+            @RequestParam(value = "fromDate", required = false) LocalDate fromDate,
+            @RequestParam(value = "toDate", required = false) LocalDate toDate
+    ) {
+        KitchenSlaStatsResponse response = analyticsService.getKitchenSlaStats(fromDate, toDate);
+        return ResponseEntity.ok(ApiResponse.ok(response));
     }
 }
