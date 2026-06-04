@@ -66,9 +66,9 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.PUT, "/orders/*/items/*/serve", "/orders/*/serve-all")
                         .hasAnyRole("WAITER", "MANAGER")
                         .requestMatchers("/orders/**").hasAnyRole("WAITER", "CASHIER", "MANAGER")
-                        // Waiter needs the payment status (to fetch QR for the table-side
-                        // hand-off flow). Confirm/cancel/refund stay CASHIER-only below.
                         .requestMatchers(HttpMethod.GET, "/payments/orders/*/status")
+                            .hasAnyRole("WAITER", "CASHIER", "MANAGER")
+                        .requestMatchers(HttpMethod.GET, "/payments/groups/*/bill")
                             .hasAnyRole("WAITER", "CASHIER", "MANAGER")
                         .requestMatchers("/payments/**").hasAnyRole("CASHIER", "MANAGER")
                         .requestMatchers("/payment-requests/**").hasAnyRole("CASHIER", "MANAGER")
