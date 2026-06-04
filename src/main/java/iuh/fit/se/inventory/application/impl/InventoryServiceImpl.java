@@ -119,11 +119,14 @@ public class InventoryServiceImpl implements InventoryService {
         ingredient.importStock(request.quantity());
         Ingredient saved = ingredientRepository.save(ingredient);
 
+        // Hạn dùng có thể đến từ ngày trực tiếp hoặc số ngày sử dụng (tính từ hôm nay).
+        LocalDate expiryDate = request.resolveExpiryDate(LocalDate.now(ZoneOffset.UTC));
+
         // Track this import as a discrete lot so FEFO consumption + expiry alerts work.
         StockLot lot = StockLot.importLot(
                 ingredient.getId(),
                 request.quantity(),
-                request.expiryDate(),
+                expiryDate,
                 request.note()
         );
         stockLotRepository.save(lot);
