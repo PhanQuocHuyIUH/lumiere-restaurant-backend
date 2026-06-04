@@ -69,4 +69,7 @@ public interface TableService {
     Optional<TableGroupData> findActiveGroupForTable(Long tableId);
 
     List<TableGroupData> getOpenTableGroups();
+
+    /** Look up a group by id regardless of status. */
+    Optional<TableGroupData> getTableGroupById(Long groupId);
 }

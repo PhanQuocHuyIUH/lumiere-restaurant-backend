@@ -1,7 +1,9 @@
 package iuh.fit.se.billing.application;
 
 import iuh.fit.se.billing.api.dto.BillSummaryResponse;
+import iuh.fit.se.billing.api.dto.CreateGroupPaymentRequest;
 import iuh.fit.se.billing.api.dto.CreatePaymentRequest;
+import iuh.fit.se.billing.api.dto.GroupBillResponse;
 import iuh.fit.se.billing.api.dto.InvoiceResponse;
 import iuh.fit.se.billing.api.dto.PaymentResponse;
 import iuh.fit.se.billing.api.dto.RefundRequest;
@@ -14,6 +16,19 @@ import java.util.Map;
 public interface BillingService {
 
     PaymentResponse createPayment(CreatePaymentRequest request, String idempotencyKey);
+
+    /**
+     * Consolidated bill for a table group: every active member order rolled up into one set of
+     * totals plus a per-table breakdown. {@code payable} is true only when every order is SERVED.
+     */
+    GroupBillResponse getGroupBill(Long groupId);
+
+    /**
+     * Settle a whole table group with ONE payment (one bill, one VNPay QR). The anchor payment is
+     * created on the master order with the group total; on success every member order is marked
+     * PAID and the group is closed.
+     */
+    PaymentResponse createGroupPayment(Long groupId, CreateGroupPaymentRequest request, String idempotencyKey);
 
     BillingWebhookResult processWebhook(
             PaymentProvider provider,

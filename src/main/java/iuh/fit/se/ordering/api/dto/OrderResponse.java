@@ -12,6 +12,7 @@ import java.util.Map;
 public record OrderResponse(
         Long id,
         Long tableId,
+        Long tableGroupId,
         OrderStatus status,
         BigDecimal subtotalAmount,
         BigDecimal taxAmount,
@@ -49,6 +50,7 @@ public record OrderResponse(
         return new OrderResponse(
                 order.getId(),
                 order.getTableId(),
+                order.getTableGroupId(),
                 order.getStatus(),
                 order.getSubtotalAmount() == null ? BigDecimal.ZERO : order.getSubtotalAmount().toBigDecimal(),
                 order.getTaxAmount() == null ? BigDecimal.ZERO : order.getTaxAmount().toBigDecimal(),

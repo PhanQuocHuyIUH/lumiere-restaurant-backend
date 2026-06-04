@@ -1,7 +1,9 @@
 package iuh.fit.se.billing.application.impl;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import iuh.fit.se.billing.api.dto.CreateGroupPaymentRequest;
 import iuh.fit.se.billing.api.dto.CreatePaymentRequest;
+import iuh.fit.se.billing.api.dto.GroupBillResponse;
 import iuh.fit.se.billing.api.dto.PaymentResponse;
 import iuh.fit.se.billing.api.dto.BillSummaryResponse;
 import iuh.fit.se.billing.api.dto.PaymentRequestResponse;
@@ -293,6 +295,89 @@ public class BillingServiceImpl implements BillingService {
             OP_CREATE_PAYMENT,
             () -> createPaymentInternal(request)
         );
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public GroupBillResponse getGroupBill(Long groupId) {
+        var group = tableService.getTableGroupById(groupId)
+                .orElseThrow(() -> new ResourceNotFoundException("TableGroup", groupId));
+
+        List<OrderResponse> orders = orderingService.getActiveOrdersForGroup(groupId);
+
+        List<GroupBillResponse.GroupOrderBill> orderBills = new java.util.ArrayList<>();
+        List<InvoiceItem> aggregatedItems = new java.util.ArrayList<>();
+        BigDecimal subtotal = BigDecimal.ZERO;
+        BigDecimal tax = BigDecimal.ZERO;
+        BigDecimal total = BigDecimal.ZERO;
+        boolean allServed = !orders.isEmpty();
+
+        Long anchorOrderId = null;
+        for (OrderResponse order : orders) {
+            if (order.status() != iuh.fit.se.ordering.domain.OrderStatus.SERVED) {
+                allServed = false;
+            }
+            if (anchorOrderId == null && order.tableId() != null
+                    && order.tableId().equals(group.masterTableId())) {
+                anchorOrderId = order.id();
+            }
+            InvoiceResponse inv = getInvoiceForOrder(order.id());
+            aggregatedItems.addAll(inv.items());
+            subtotal = subtotal.add(inv.subtotal() == null ? BigDecimal.ZERO : inv.subtotal());
+            tax = tax.add(inv.tax() == null ? BigDecimal.ZERO : inv.tax());
+            total = total.add(inv.total() == null ? BigDecimal.ZERO : inv.total());
+            orderBills.add(new GroupBillResponse.GroupOrderBill(
+                    order.id(),
+                    order.tableId(),
+                    resolveTableCodeQuietly(order.tableId()),
+                    order.status() == null ? null : order.status().name(),
+                    inv.subtotal(),
+                    inv.tax(),
+                    inv.total(),
+                    inv.items()
+            ));
+        }
+        // Fall back to the oldest order as anchor when the master table itself has no active order.
+        if (anchorOrderId == null && !orders.isEmpty()) {
+            anchorOrderId = orders.get(0).id();
+        }
+
+        String reason = orders.isEmpty()
+                ? "Nhóm bàn chưa có order nào để thanh toán"
+                : (allServed ? null : "Còn order chưa phục vụ xong trong nhóm — chưa thể thanh toán");
+
+        return new GroupBillResponse(
+                group.id(),
+                group.masterTableId(),
+                resolveTableCodeQuietly(group.masterTableId()),
+                anchorOrderId,
+                orderBills,
+                aggregatedItems,
+                subtotal,
+                tax,
+                total,
+                allServed,
+                reason
+        );
+    }
+
+    @Override
+    public PaymentResponse createGroupPayment(Long groupId, CreateGroupPaymentRequest request, String idempotencyKey) {
+        String normalizedKey = IdempotencyUtil.normalizeKey(idempotencyKey);
+        return paymentIdempotencyService.executeIdempotent(
+            normalizedKey,
+            OP_CREATE_PAYMENT,
+            () -> createGroupPaymentInternal(groupId, request)
+        );
+    }
+
+    private String resolveTableCodeQuietly(Long tableId) {
+        if (tableId == null) return null;
+        try {
+            return tableService.getTableById(tableId).tableCode();
+        } catch (Exception ex) {
+            return null;
+        }
     }
 
     @Override
@@ -774,6 +859,141 @@ public class BillingServiceImpl implements BillingService {
         // phone over to the table for the customer to scan. Failure to broadcast is
         // non-fatal — the cashier still has the QR on admin.
         broadcastPaymentToWaiter(payment, order, response);
+        return response;
+    }
+
+    /**
+     * One-payment settlement for a whole table group. The anchor Payment lives on the master order
+     * but carries the group total; on success the {@link iuh.fit.se.billing.listener.BillingOrderEventListener}
+     * cascade marks every member order PAID and closes the group.
+     */
+    private PaymentResponse createGroupPaymentInternal(Long groupId, CreateGroupPaymentRequest request) {
+        validatePaymentMethodProvider(request.paymentMethod(), request.provider());
+        validateShiftForPayment(request.shiftId());
+
+        var group = tableService.getTableGroupById(groupId)
+                .orElseThrow(() -> new ResourceNotFoundException("TableGroup", groupId));
+
+        List<OrderResponse> orders = orderingService.getActiveOrdersForGroup(groupId);
+        if (orders.isEmpty()) {
+            throw new DomainException("Nhóm bàn chưa có order nào để thanh toán");
+        }
+
+        // Every member order must be fully served and free of an existing successful payment.
+        OrderResponse anchor = null;
+        BigDecimal subtotal = BigDecimal.ZERO;
+        BigDecimal tax = BigDecimal.ZERO;
+        BigDecimal total = BigDecimal.ZERO;
+        for (OrderResponse order : orders) {
+            ensureOrderCanCreatePayment(order);
+            if (paymentRepository.existsByOrderIdAndStatus(order.id(), PaymentStatus.SUCCESS)) {
+                throw new DomainException("Order " + order.id() + " trong nhóm đã được thanh toán");
+            }
+            subtotal = subtotal.add(order.subtotalAmount() == null ? BigDecimal.ZERO : order.subtotalAmount());
+            tax = tax.add(order.taxAmount() == null ? BigDecimal.ZERO : order.taxAmount());
+            total = total.add(order.totalAmount() == null ? BigDecimal.ZERO : order.totalAmount());
+            if (anchor == null && order.tableId() != null && order.tableId().equals(group.masterTableId())) {
+                anchor = order;
+            }
+        }
+        if (anchor == null) {
+            anchor = orders.get(0);
+        }
+        if (total.signum() <= 0) {
+            throw new DomainException("Tổng tiền nhóm bàn phải lớn hơn 0");
+        }
+
+        // Clear stale pending payments on the anchor so a method switch doesn't pile up records.
+        supersedePendingPaymentsForOrder(anchor.id());
+
+        Long cashierId = resolveStaffIdForCashier();
+        Payment payment = Payment.createPendingForGroup(
+                anchor.id(),
+                groupId,
+                request.shiftId(),
+                total,
+                subtotal,
+                tax,
+                anchor.taxMode(),
+                anchor.taxRateBps(),
+                request.paymentMethod(),
+                request.provider(),
+                cashierId
+        );
+        payment = paymentRepository.save(payment);
+
+        // Synthesize the per-order request shape the gateway builders expect (amount comes from the
+        // Payment, so only routing fields matter here).
+        CreatePaymentRequest gatewayRequest = new CreatePaymentRequest(
+                anchor.id(),
+                request.shiftId(),
+                request.paymentMethod(),
+                request.provider(),
+                request.locale(),
+                request.clientIp(),
+                request.bankCode()
+        );
+
+        Map<String, Object> rawRequest = IdempotencyUtil.toJsonMap(objectMapper, gatewayRequest);
+        PaymentTransaction transaction = PaymentTransaction.initiated(
+                payment.getId(),
+                payment.getProvider(),
+                TxnType.INITIATE,
+                payment.getAmount() == null ? BigDecimal.ZERO : payment.getAmount().toBigDecimal(),
+                rawRequest
+        );
+        transaction = paymentTransactionRepository.save(transaction);
+
+        GatewayActionResult gatewayResult = initiatePayment(payment, gatewayRequest);
+
+        payment.registerProviderInit(
+                gatewayResult.providerTransactionId(),
+                gatewayResult.responseCode(),
+                gatewayResult.vnpTmnCode(),
+                gatewayResult.vnpBankTranNo(),
+                gatewayResult.vnpTransactionStatus(),
+                gatewayResult.vnpPayDate(),
+                gatewayResult.bankCode(),
+                gatewayResult.cardType(),
+                gatewayResult.qrContent(),
+                gatewayResult.qrExpiresAt(),
+                gatewayResult.responsePayload()
+        );
+
+        if (gatewayResult.transition() == PaymentTransition.SUCCESS) {
+            payment.markSuccess(
+                    gatewayResult.providerTransactionId(),
+                    gatewayResult.responseCode(),
+                    gatewayResult.responsePayload()
+            );
+            eventPublisher.publishEvent(new PaymentSuccessEvent(
+                    payment.getId(),
+                    payment.getOrderId(),
+                    payment.getSubtotalAmount() == null ? BigDecimal.ZERO : payment.getSubtotalAmount().toBigDecimal(),
+                    payment.getTaxAmount() == null ? BigDecimal.ZERO : payment.getTaxAmount().toBigDecimal(),
+                    payment.getAmount() == null ? BigDecimal.ZERO : payment.getAmount().toBigDecimal()
+            ));
+        } else if (gatewayResult.transition() == PaymentTransition.FAILED) {
+            payment.markFailed(gatewayResult.responseCode(), gatewayResult.responsePayload());
+            eventPublisher.publishEvent(new PaymentFailedEvent(payment.getId(), payment.getOrderId(), gatewayResult.message()));
+        }
+
+        payment = paymentRepository.save(payment);
+
+        if (gatewayResult.transition() == PaymentTransition.FAILED) {
+            transaction.markFailed(gatewayResult.httpStatusCode(), gatewayResult.durationMs(), gatewayResult.responsePayload());
+        } else {
+            transaction.markSuccess(
+                    gatewayResult.providerTransactionId(),
+                    gatewayResult.httpStatusCode(),
+                    gatewayResult.durationMs(),
+                    gatewayResult.responsePayload()
+            );
+        }
+        paymentTransactionRepository.save(transaction);
+
+        PaymentResponse response = PaymentResponse.from(payment);
+        broadcastPaymentToWaiter(payment, anchor, response);
         return response;
     }
 

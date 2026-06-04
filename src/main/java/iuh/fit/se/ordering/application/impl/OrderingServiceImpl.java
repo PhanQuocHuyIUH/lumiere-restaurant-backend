@@ -1152,6 +1152,33 @@ public class OrderingServiceImpl implements OrderingService {
         return Optional.of(order.getId());
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public List<OrderResponse> getActiveOrdersForGroup(Long tableGroupId) {
+        if (tableGroupId == null) {
+            return List.of();
+        }
+        return orderRepository.findAllByTableGroupIdAndStatusIn(tableGroupId, ACTIVE_ORDER_STATUSES)
+                .stream()
+                .sorted(java.util.Comparator.comparing(Order::getCreatedAt))
+                .map(this::toOrderResponse)
+                .toList();
+    }
+
+    @Override
+    public void markGroupOrdersPaid(Long tableGroupId) {
+        if (tableGroupId == null) {
+            return;
+        }
+        List<Order> orders = orderRepository.findAllByTableGroupIdAndStatusIn(
+                tableGroupId, Set.of(OrderStatus.SERVED));
+        for (Order order : orders) {
+            order.pay();
+            orderRepository.save(order);
+            tableService.markTableCleaning(order.getTableId());
+        }
+    }
+
     private OrderConfirmedEvent buildOrderConfirmedEvent(Order order, List<OrderItem> items) {
         List<OrderItem> billableItems = items.stream()
                 .filter(item -> !item.isComboParent() && item.getMenuItemId() != null)

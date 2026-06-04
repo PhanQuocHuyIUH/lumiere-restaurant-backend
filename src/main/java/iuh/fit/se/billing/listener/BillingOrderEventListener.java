@@ -1,8 +1,11 @@
 package iuh.fit.se.billing.listener;
 
 import iuh.fit.se.billing.application.PaymentRequestService;
+import iuh.fit.se.billing.domain.Payment;
+import iuh.fit.se.billing.repository.PaymentRepository;
 import iuh.fit.se.ordering.api.dto.OrderResponse;
 import iuh.fit.se.ordering.application.OrderingService;
+import iuh.fit.se.table.application.TableService;
 import iuh.fit.se.shared.event.PaymentRefundedEvent;
 import iuh.fit.se.shared.event.PaymentSuccessEvent;
 import java.util.LinkedHashMap;
@@ -25,15 +28,21 @@ public class BillingOrderEventListener {
     private final OrderingService orderingService;
     private final PaymentRequestService paymentRequestService;
     private final SimpMessagingTemplate messagingTemplate;
+    private final PaymentRepository paymentRepository;
+    private final TableService tableService;
 
     public BillingOrderEventListener(
             OrderingService orderingService,
             PaymentRequestService paymentRequestService,
-            SimpMessagingTemplate messagingTemplate
+            SimpMessagingTemplate messagingTemplate,
+            PaymentRepository paymentRepository,
+            TableService tableService
     ) {
         this.orderingService = orderingService;
         this.paymentRequestService = paymentRequestService;
         this.messagingTemplate = messagingTemplate;
+        this.paymentRepository = paymentRepository;
+        this.tableService = tableService;
     }
 
     @Async
@@ -56,6 +65,23 @@ public class BillingOrderEventListener {
 
         // Auto-complete any active customer payment-request once the order is actually paid.
         paymentRequestService.completeActiveForOrderQuietly(event.getOrderId());
+
+        // Group ("gộp bàn") settlement: a group anchor payment settles every member order at once.
+        // Only the anchor Payment carries a table_group_id — normal per-table payments skip this.
+        Long groupId = paymentRepository.findById(event.getPaymentId())
+                .map(Payment::getTableGroupId)
+                .orElse(null);
+        if (groupId != null) {
+            try {
+                orderingService.markGroupOrdersPaid(groupId);
+                tableService.closeTableGroup(groupId);
+            } catch (Exception ex) {
+                // Money is already captured; a failure here (e.g. a leftover unserved order) must not
+                // roll back the payment. Surface it for manual cleanup instead.
+                LOGGER.warn("Failed to finalize group {} after anchor payment {}: {}",
+                        groupId, event.getPaymentId(), ex.getMessage());
+            }
+        }
     }
 
     @Async

@@ -1,6 +1,8 @@
 package iuh.fit.se.billing.api;
 
+import iuh.fit.se.billing.api.dto.CreateGroupPaymentRequest;
 import iuh.fit.se.billing.api.dto.CreatePaymentRequest;
+import iuh.fit.se.billing.api.dto.GroupBillResponse;
 import iuh.fit.se.billing.api.dto.PaymentResponse;
 import iuh.fit.se.billing.api.dto.RefundRequest;
 import iuh.fit.se.billing.api.dto.RefundResponse;
@@ -38,6 +40,22 @@ public class BillingController {
         PaymentResponse response = billingService.createPayment(request, idempotencyKey);
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(ApiResponse.ok("Payment created", response));
+    }
+
+    @GetMapping("/groups/{groupId}/bill")
+    public ResponseEntity<ApiResponse<GroupBillResponse>> getGroupBill(@PathVariable("groupId") Long groupId) {
+        return ResponseEntity.ok(ApiResponse.ok(billingService.getGroupBill(groupId)));
+    }
+
+    @PostMapping("/groups/{groupId}")
+    public ResponseEntity<ApiResponse<PaymentResponse>> createGroupPayment(
+            @PathVariable("groupId") Long groupId,
+            @RequestHeader("X-Idempotency-Key") String idempotencyKey,
+            @Valid @RequestBody CreateGroupPaymentRequest request
+    ) {
+        PaymentResponse response = billingService.createGroupPayment(groupId, request, idempotencyKey);
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.ok("Group payment created", response));
     }
 
     @GetMapping("/orders/{orderId}/status")

@@ -46,4 +46,17 @@ public interface OrderingService {
      * to dependent modules (Kitchen tasks, etc). Empty when there's no active order to move.
      */
     Optional<Long> transferActiveOrderToTable(Long fromTableId, Long toTableId);
+
+    /**
+     * All active (non-PAID, non-CANCELLED) orders belonging to a table group, oldest first.
+     * Used to build the consolidated group bill.
+     */
+    List<OrderResponse> getActiveOrdersForGroup(Long tableGroupId);
+
+    /**
+     * Settle every SERVED order in the group: mark PAID and transition its table to CLEANING.
+     * Idempotent — orders already PAID/CANCELLED are skipped. Called by the payment-success
+     * cascade after the group's anchor payment succeeds.
+     */
+    void markGroupOrdersPaid(Long tableGroupId);
 }

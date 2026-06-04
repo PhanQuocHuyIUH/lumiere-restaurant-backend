@@ -492,6 +492,11 @@ public class TableServiceImpl implements TableService {
                 .stream().map(TableGroupData::from).toList();
     }
 
+    @Override
+    public Optional<TableGroupData> getTableGroupById(Long groupId) {
+        return tableGroupRepository.findById(groupId).map(TableGroupData::from);
+    }
+
     /**
      * Revoke every ACTIVE QR session for this table. Mirrors {@code session.revoke()}
      * to the cache so the auth check blocks the next request without waiting for

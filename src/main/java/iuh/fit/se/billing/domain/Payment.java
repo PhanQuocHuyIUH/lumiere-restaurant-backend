@@ -41,6 +41,14 @@ public class Payment {
     @Column(name = "order_id", nullable = false)
     private Long orderId;
 
+    /**
+     * Set only for a group ("gộp bàn") payment. The anchor Payment is linked to the master
+     * order via {@link #orderId} but its amount covers every order in this group. NULL for
+     * normal per-table payments. Used by the success cascade to settle sibling orders.
+     */
+    @Column(name = "table_group_id")
+    private Long tableGroupId;
+
     @Column(name = "shift_id")
     private Long shiftId;
 
@@ -183,6 +191,31 @@ public class Payment {
                 .status(PaymentStatus.PENDING)
                 .cashierId(cashierId)
                 .build();
+    }
+
+    /**
+     * Pending anchor payment for a table group. Identical to {@link #createPending} but tags
+     * the payment with the group id so the success cascade settles every member order.
+     */
+    public static Payment createPendingForGroup(
+            Long anchorOrderId,
+            Long tableGroupId,
+            Long shiftId,
+            BigDecimal amount,
+            BigDecimal subtotalAmount,
+            BigDecimal taxAmount,
+            TaxMode taxMode,
+            Integer taxRateBps,
+            PaymentMethod paymentMethod,
+            PaymentProvider provider,
+            Long cashierId
+    ) {
+        Payment payment = createPending(
+                anchorOrderId, shiftId, amount, subtotalAmount, taxAmount,
+                taxMode, taxRateBps, paymentMethod, provider, cashierId
+        );
+        payment.tableGroupId = tableGroupId;
+        return payment;
     }
 
     public void registerProviderInit(
